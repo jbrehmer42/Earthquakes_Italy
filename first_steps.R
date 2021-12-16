@@ -32,7 +32,7 @@ cfile <- paste0(path, '/rate_clima.txt')
 clima <- read.table(cfile, header = F, col.names = c("LON", "LAT", "RATE"))
 #evts_per7 <- 25.95 * 7/365      # See Mail by Warner (08.09.21)
 evts_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
-#evts_per7 <- 16.97 * 7/365      # See n_per_year variable
+#evts_per7 <- 16.97 * 7/365      # See events per year
 clima$RATE <- clima$RATE * evts_per7
 
 # Load time stamps corresponding to matrix rows

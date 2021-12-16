@@ -1,5 +1,6 @@
 ## Spatial plots of scores, calibration, and
 ## discrimination over testing area
+## Compared to the CLIMATOLOGY
 
 
 # Do Data preparation

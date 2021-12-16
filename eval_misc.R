@@ -230,3 +230,4 @@ plot(1, 1, xlim = xlim, ylim = ylim, col = "white", asp = 1.3, xaxt = "n",
 points(clima$LON, clima$LAT, pch = 15, col = vals, cex = 0.5)
 map('world', fill = F, add = T, col = border_col)
 dev.off()
+

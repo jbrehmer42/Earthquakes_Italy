@@ -62,4 +62,4 @@ for (k in 1:max_agg) {
   #}
 }
 
-source('~/Documents/_temp/Case/high_temp.R')
+source('~/Documents/_temp/Case/clima_maps.R')
