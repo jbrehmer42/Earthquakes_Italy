@@ -1,4 +1,4 @@
-## Modify testing region to intersection of
+## Reduce testing region to intersection of
 ## forecast models and climatological model
 
 ## Compute intersection of testing regions
