@@ -10,10 +10,10 @@ max_agg <- 10
 
 for (k in 1:max_agg) {
   # Do Data preparation
-  source('~/Documents/_temp/Case/first_steps.R')
+  source('~/Documents/_temp/Case/load_data.R')
   # Load evaluation and plotting functions
-  source('~/Documents/_temp/Case/eval_functions.R')
-  source('~/Documents/_temp/Case/plot_functions.R')
+  source('~/Documents/_temp/Case/functions_eval.R')
+  source('~/Documents/_temp/Case/functions_plot.R')
   ncols <- 200
   pal <- rev(heat.colors(ncols))
   # compute neighbourhood matrix

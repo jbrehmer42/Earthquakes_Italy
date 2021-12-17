@@ -1,9 +1,9 @@
 ## Model evaluation as in CSEP
 
 # Do Data preparation
-source('~/Documents/_temp/Case/first_steps.R')
+source('~/Documents/_temp/Case/data_prep.R')
 # source functions for scores
-source('~/Documents/_temp/Case/eval_functions.R')
+source('~/Documents/_temp/Case/functions_eval.R')
 
 
 ############################################

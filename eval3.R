@@ -3,10 +3,10 @@
 
 
 # Do Data preparation
-source('~/Documents/_temp/Case/first_steps.R')
+source('~/Documents/_temp/Case/data_prep.R')
 # Load evaluation and plotting functions
-source('~/Documents/_temp/Case/eval_functions.R')
-source('~/Documents/_temp/Case/plot_functions.R')
+source('~/Documents/_temp/Case/functions_eval.R')
+source('~/Documents/_temp/Case/functions_plot.R')
 
 ## Compute values for maps
 MCB_map <- DSC_map <- matrix(0, nrow = nbins, ncol = 4)

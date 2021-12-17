@@ -1,10 +1,10 @@
 ## Checking for mean calibration 
 
 # Do Data preparation
-source('~/Documents/_temp/Case/first_steps.R')
+source('~/Documents/_temp/Case/data_prep.R')
 # source functions for scores
-source('~/Documents/_temp/Case/eval_functions.R')
-source('~/Documents/_temp/Case/plot_functions.R')
+source('~/Documents/_temp/Case/functions_eval.R')
+source('~/Documents/_temp/Case/functions_plot.R')
 
 #################################################
 #### Part I - Murphy diagram for MCB and DSC ####
