@@ -1,152 +1,83 @@
 ## First steps for case study
-## Data preparation and graphics
+## Data preparation
 
-path <- '~/EQData'
-# Load package for sparse matrices
+
+# Path for r scripts
+rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+
+# Path for data
+# The files containing the forecasts and observations should
+# be located in this folder
+dpath <- "/home/jbrehmer/EQData"
+
+# Set file names (default names)
+# The forecast model outputs are arrays with time in rows
+# and grid cells in the columns
+modelNames <- c("ETAS_LM.txt.xz", "ETES_FMC.txt.xz",
+                "STEP_LG.txt.xz", "Bayesian_corr_27_10.txt.xz")
+# Time stamps corresponding to model outputs
+# (rows of the model output data)
+timestampName <- "meta_rows.txt"
+# Locations of grid cells corresponding to model outputs
+# (columns of the model output data)
+cellName <- "meta_column.csv"
+# Catalog of observed earthquakes
+eventsName <- "meta_catalogo.txt"
+
+# Load necessary packages
 library(Matrix)
 
+# Load auxiliary functions
+source(paste0(rpath, "/functions_prep.R"))
 
-## 1 ##
-## Forecast models
-file1 <- paste0(path, '/ETAS_LM.txt.xz')
-file2 <- paste0(path, '/ETES_FMC.txt.xz')
-file3 <- paste0(path, '/STEP_LG.txt.xz')
-file4 <- paste0(path, '/Bayesian_corr_27_10.txt.xz')
-
-model1 <- as.matrix( read.table(xzfile(file1)) )
-model2 <- as.matrix( read.table(xzfile(file2)) )
-model3 <- as.matrix( read.table(xzfile(file3)) )
-model4 <- as.matrix( read.table(xzfile(file4)) )
-
-attr(model1, "dimnames") <- NULL
-attr(model2, "dimnames") <- NULL
-attr(model3, "dimnames") <- NULL
-attr(model4, "dimnames") <- NULL
-
-
+# Set model names and their colors
 mnames <- c("LM", "FMC", "LG", "SMA")
-cols <- c("black", "darkgreen", "blue", "red")
+mcols <- c("black", "darkgreen", "blue", "red")
+# Define last day where model evaluation is possible (needed
+# because we treat 7-day periods)
+lastday <- list(DD = 20, MM = 5, YY = 2020)
+
+
+###############
+## Load data ##
+
+# Load time stamps for the models
+filePath <- paste0(dpath, "/", timestampName)
+res <- load_times(filePath, lastday)
+times <- res$times
+
+# Load list of model forecasts
+filePaths <- paste0(dpath, "/", modelNames)
+models <- load_models(filePaths, res$tindex)
+nmods <- length(models)
+
+# Load the grid cell data (testing region)
+filePath <- paste0(dpath, "/", cellName)
+cells <- load_cells(filePath)
+
+# Load data frame of M4+ events
+filePath <- paste0(dpath, "/", eventsName)
+events <- load_events(filePath, times)
+
+# Filter the M4+ events for testing region
+events <- filterRegion(events, cells)
+
+# Convert events data frame to observation matrix of the
+# same format as the forecast matrices in models. Thus 
+# any scoring function S can be applied to the components
+# of these matrices. For example S( models[[i]], obs )
+# gives a matrix of scores for all grid cells and days
+ncells <- dim(cells)[1]
+ndays <- dim(times)[1]
+obs <- events2obs(events, ndays, ncells)
 
 # Load climatological model (constant in time)
-cfile <- paste0(path, '/rate_clima.txt')
+cfile <- paste0(dpath, "/", "rate_clima.txt")
 clima <- read.table(cfile, header = F, col.names = c("LON", "LAT", "RATE"))
 #evts_per7 <- 25.95 * 7/365      # See Mail by Warner (08.09.21)
 evts_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
-#evts_per7 <- 16.97 * 7/365      # See events per year
+#evts_per7 <- 16.97 * 7/365      # See events per year (calculated)
 clima$RATE <- clima$RATE * evts_per7
 
-# Load time stamps corresponding to matrix rows
-tfile <- paste(path, '/meta_rows.txt', sep='')
-times <- read.table(tfile, col.names = c("DD", "MM", "YY", "H", "M", "S"))
-
-# Filter out all days with multiple model runs and
-# before the end of testing period
-get_days <- function(times) {
-  # identify days which have multiple forecasts
-  n <- dim(times)[1]
-  ind <- rep(F, n)
-  for (i in 2:n) {
-    ind[i] <- all(times[i-1, 1:3] == times[i, 1:3])
-  }
-  return(ind)
-}
-max.date <- c(20, 5, 2020)
-
-unik <- !get_days(times)
-max.ind <- which((times$DD == max.date[1]) & (times$MM == max.date[2]) & (times$YY == max.date[3]))
-if ( (length(max.ind) == 1) & (max.ind < length(unik)) ) unik[(max.ind+1):length(unik)] <- FALSE
-
-times2 <- times[unik, ]
-model1 <- model1[unik, ]
-model2 <- model2[unik, ]
-model3 <- model3[unik, ]
-model4 <- model4[unik, ]
-
-
-
-## 2 ##
-## Events
-efile <- paste(path, '/meta_catalogo.txt', sep='')
-events <- read.table(efile, col.names = c("YY", "MM", "DD", "H", "M", "S", "LAT", "LON", "DEP", "MAG"))
-
-# Using M >= 4 is equivalent to using M >= 3.95 earthquakes
-M4ind <- (events$MAG >= 4)
-M4events <- events[M4ind, ]
-#plot(events$LON[M4ind], events$LAT[M4ind])
-
-# Load bin data
-bfile <- paste(path, '/meta_column.csv', sep='')
-bins <- read.csv(bfile, header=F, col.names = c("LON", "LAT", "N"))
-bins$N <- bins$N + 1
-
-# Calculate x-y-coordinates for bins (relative to testing region)
-xvals <- sort(unique(bins$LON))
-yvals <- sort(unique(bins$LAT))
-bins$X <- sapply(bins$LON, function(x) which(x == xvals))
-bins$Y <- sapply(bins$LAT, function(x) which(x == yvals))
-
-# Assign bin numbers to events
-size_LON <- 0.1
-size_LAT <- 0.1
-get_bins <- function(evts, bins) {
-  # assign bin number to every event
-  # bin numbers start with 1
-  n <- dim(evts)[1]
-  ind <- rep(0, n)
-  for (i in 1:n) {
-    bin_ri <- bins$LON + 0.5 * size_LON
-    bin_le <- bins$LON - 0.5 * size_LON
-    bin_lo <- bins$LAT - 0.5 * size_LAT
-    bin_up <- bins$LAT + 0.5 * size_LAT
-    isLON <- (bin_le < evts$LON[i]) & (evts$LON[i] <= bin_ri)
-    isLAT <- (bin_lo < evts$LAT[i]) & (evts$LAT[i] <= bin_up)
-    if (any(isLON & isLAT) ) {
-      # add 1 so bin numbers start with 1
-      ind[i] <- bins$N[isLON & isLAT]
-    } else {
-      # set index to -1 outside testing region
-      ind[i] <- -1
-    }
-  }
-  return(ind)
-}
-
-M4ind2 <- get_bins(M4events, bins)
-M4events <- M4events[(M4ind2 > 0), ]
-M4events$N <- M4ind2[M4ind2 > 0]
-
-# Assign day number (time index) to events
-get_tindex <- function(evts, times) {
-  # assign day number/time index to every event
-  # day numbers are given by times data.frame
-  n <- dim(evts)[1]
-  ind <- rep(-1, n)
-  for (i in 1:n) {
-    DD <- evts$DD[i]
-    MM <- evts$MM[i]
-    YY <- evts$YY[i]
-    gind <- (times$DD == DD) & (times$MM == MM) & (times$YY == YY)
-    if (any(gind)) ind[i] <- which(gind)
-  }
-  return(ind)
-}
-
-M4ind3 <- get_tindex(M4events, times2)
-M4events <- M4events[(M4ind3 > 0), ]
-M4events$TI <- M4ind3[M4ind3 > 0]
-
-# Transform to weekly events
-nbins <- dim(model1)[2]
-ndays <- dim(model1)[1]
-obs <- Matrix(0, ncol = nbins, nrow = ndays, sparse = T)
-for (i in 1:ndays) {
-  ind <- (M4events$TI >= i) & (M4events$TI < i + 7)
-  if (any(ind)) {
-    weekbin <- tabulate(M4events$N[ind], nbins = nbins)
-    obs[i, ] <- weekbin
-  } else next
-}
-
 ## Clean up
-rm(M4ind, M4ind2, M4ind3, unik, xvals, yvals, ind, weekbin, i,
-   file1, file2, file3, file4, efile, tfile, bfile)
+rm(filePath, cfile)

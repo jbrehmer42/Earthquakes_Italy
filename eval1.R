@@ -1,24 +1,26 @@
 ## Model evaluation as in CSEP
 
 # Do Data preparation
-source('~/Documents/_temp/Case/data_prep.R')
+source('~/Documents/Code/Earthquakes_Italy/data_prep.R')
 # source functions for scores
-source('~/Documents/_temp/Case/functions_eval.R')
+source('~/Documents/Code/Earthquakes_Italy/functions_eval.R')
+# source functions for plotting
+source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
 
+
+# Path for figures
+fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
 
 ############################################
 #### Part I - Scores and Murphy diagram ####
 
 
 ## Calculate daily scores for quadratic and Poisson loss
-scores_pois <- scores_quad <- matrix(0, nrow = ndays, ncol = 4)
-for (i in 1:4) {
-  mname <- paste0("model", i)
-  scores_pois[ ,i] <- rowSums( Spois(get(mname), obs) )
-  scores_quad[ ,i] <- rowSums( Squad(get(mname), obs) )
+scores_pois <- scores_quad <- matrix(0, nrow = ndays, ncol = nmods)
+for (i in 1:nmods) {
+  scores_pois[ ,i] <- rowSums( Spois(models[[i]], obs) )
+  scores_quad[ ,i] <- rowSums( Squad(models[[i]], obs) )
 }
-
-save(scores_pois, scores_quad, file = paste0(path, "/scores.RData"))
 
 ## Mean scores for full testing period
 colMeans(scores_pois)
@@ -33,19 +35,18 @@ scores_bin <- list()
 for (i in 1:(length(binlim)-1)) {
   a <- binlim[i]
   b <- binlim[i+1]
-  vals <- matrix(0, nrow = ndays, ncol = 4)
-  for (k in 1:4) {
-    mname <- paste0("model", k)
+  vals <- matrix(0, nrow = ndays, ncol = nmods)
+  for (k in 1:nmods) {
     cat("\n")
     cat(paste(mname, "bin", i, "of", length(binlim)-1))
     for (j in 1:ndays) {
-      vals[j,k] <- Sbin( get(mname)[j, ], obs[j, ], a, b)
+      vals[j,k] <- Sbin( models[[k]][j, ], obs[j, ], a, b)
     }
   }
   scores_bin[[i]] <- vals
 }
 
-save(scores_bin, file = paste0(path, '/scores_bin.RData'))
+save(scores_bin, file = paste0(dpath, '/scores_bin.RData'))
 
 
 ## Murphy diagrams
@@ -58,11 +59,10 @@ grd <- exp(lgrd)
 tt <- Sys.time()
 Mphy_list <- list()
 for (j in 1:ntheta) {
-  vals <- matrix(0, nrow = ndays, ncol = 4)
-  for (i in 1:4) {
-    mname <- paste0("model", i)
+  vals <- matrix(0, nrow = ndays, ncol = nmods)
+  for (i in 1:nmods) {
     for (k in 1:ndays) {
-      vals[k,i] <- Sthet(get(mname)[k, ], obs[k, ], grd[j])
+      vals[k,i] <- Sthet(models[[i]][k, ], obs[k, ], grd[j])
     }
   }
   Mphy_list[[j]] <- vals
@@ -71,80 +71,47 @@ for (j in 1:ntheta) {
 }
 tt <- Sys.time() - tt
 
-save(Mphy_list, file = paste0(path, '/Mphy_list.RData'))
+save(Mphy_list, file = paste0(dpath, '/Mphy_list.RData'))
 
 Mphy_diag <- t( sapply(Mphy_list, "colMeans") )
 
 
 
 ## Time dependent plots of scores
-# load(paste(path, '/scores.RData', sep=''))
-# prepare time axis
-tindex <- (times2$DD == 1) & (times2$MM == 1)
-labs <- times2$YY[tindex]
-evt_days <- unique(M4events$TI)
 
-## logarithmic
-filePath <- "~/Documents/_temp/Case/Plots/plot_pois_time.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, scores_pois[ ,1], ty = "l", ylim = c(-1,70), xlab = "days",
-     ylab = "score", main = "Logarithmic score", xaxt = "n")
-for (i in 2:4) {
-  lines(1:ndays, scores_pois[ ,i], col = cols[i])
-}
-points(evt_days, rep(-1, length(evt_days)), cex = 0.8)
-axis(1, at = which(tindex), labels = labs)
-legend(4500, 58, mnames, col = cols, lwd = 2)
-dev.off()
+# Plot of daily scores (Poisson)
+filePath <- paste(fpath, "plot_pois_time.pdf", sep = "/")
+plotScores(scores_pois, times, mnames, mcols, filePath, events = events, logscale = F) 
 
-## logarithmic (log scale)
-filePath <- "~/Documents/_temp/Case/Plots/plot_pois_time_log.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, log(scores_pois[ ,1]), ty = "l", ylim = c(-2,5.4), xlab = "days",
-     ylab = "score (log scale)", main = "Logarithmic score (log scale)", xaxt="n")
-for (i in 2:4) {
-  lines(1:ndays, log(scores_pois[ ,i]), col = cols[i])
-}
-points(evt_days, rep(-2, length(evt_days)), cex = 0.8)
-axis(1, at = which(tindex), labels = labs)
-legend(0, 5.3, mnames, col = cols, lwd = 2)
-dev.off()
+# Plot of daily scores (Poisson, log)
+filePath <- paste(fpath, "plot_pois_time_log.pdf", sep = "/")
+plotScores(scores_pois, times, mnames, mcols, filePath, events = events) 
 
-## quadratic
-filePath <- "~/Documents/_temp/Case/Plots/plot_quad_time.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, scores_quad[ ,1], ty = "l", ylim = c(0, 50), xlab = "days",
-     ylab = "score", main = "Quadratic score", xaxt = "n")
-for (i in 2:4) {
-  lines(1:ndays, scores_quad[ ,i], col = cols[i])
-}
-axis(1, at = which(tindex), labels = labs)
-legend(4500, 48, mnames, col = cols, lwd = 2)
-dev.off()
+# Plot of daily scores (Quadratic)
+filePath <- paste(fpath, "plot_quad_time.pdf", sep = "/")
+plotScores(scores_quad, times, mnames, mcols, filePath, events = events, logscale = F) 
 
-## quadratic (log scale)
-filePath <- "~/Documents/_temp/Case/Plots/plot_quad_time_log.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, log(scores_quad[ ,1]), ty = "l", ylim = c(-11,5.2), xlab = "days",
-     ylab = "score (log scale)", main = "Quadratic score (log scale)", xaxt = "n")
-for (i in 2:4) {
-  lines(1:ndays, log(scores_quad[ ,i]), col = cols[i])
-}
-axis(1, at = which(tindex), labels = labs)
-legend(0, 5.1, mnames, col = cols, lwd = 2)
-dev.off()
+# Plot of daily scores (Quadratic)
+filePath <- paste(fpath, "plot_quad_time_log.pdf", sep = "/")
+plotScores(scores_quad, times, mnames, mcols, filePath, events = events) 
 
-## bin (lowest)
-filePath <- "~/Documents/_temp/Case/Plots/plot_bin_time.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, scores_bin[[1]][ ,1], ty = "l", ylim = c(4.7e-9, 6.2e-9), xlab = "days",
-     ylab = "score", main = "Lowest bin score", xaxt = "n")
-for (i in 2:4) {
-  lines(1:ndays, scores_bin[[1]][ ,i], col = cols[i])
-}
-axis(1, at = which(tindex), labels = labs)
-legend(0, 5.6e-9, mnames, col = cols, lwd = 2)
-dev.off()
+
+
+# Plot of daily scores (lowest bin score)
+filePath <- paste(fpath, "plot_bin_time.pdf", sep = "/")
+plotScores(scores_bin[[1]], times, mnames, mcols, filePath, events = events, logscale = F)
+# pdf(filePath, width = 8, height=6)
+# plot(1:ndays, scores_bin[[1]][ ,1], ty = "l", ylim = c(4.7e-9, 6.2e-9), xlab = "days",
+#      ylab = "score", main = "Lowest bin score", xaxt = "n")
+# for (i in 2:4) {
+#   lines(1:ndays, scores_bin[[1]][ ,i], col = cols[i])
+# }
+# axis(1, at = which(tindex), labels = labs)
+# legend(0, 5.6e-9, mnames, col = cols, lwd = 2)
+# dev.off()
+
+## TO DO:
+# Create function for Murphy diagrams
 
 ## Plot of Murphy diagram
 filePath <- "~/Documents/_temp/Case/Plots/plot_Murphy_diag.pdf"
