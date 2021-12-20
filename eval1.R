@@ -98,6 +98,8 @@ plotScores(scores_quad, times, mnames, mcols, filePath, events = events)
 
 
 # Plot of daily scores (lowest bin score)
+## TO DO:
+# Test this section
 filePath <- paste(fpath, "plot_bin_time.pdf", sep = "/")
 plotScores(scores_bin[[1]], times, mnames, mcols, filePath, events = events, logscale = F)
 # pdf(filePath, width = 8, height=6)
@@ -134,27 +136,27 @@ dev.off()
 #### Part II - Fully aggregated forecasts ####
 
 # Aggregate mean forecasts
-model1_agg <- rowSums(model1)
-model2_agg <- rowSums(model2)
-model3_agg <- rowSums(model3)
-model4_agg <- rowSums(model4)
+models_agg <- list()
+for (i in 1:nmods) models_agg[[i]] rowSums(models[[i]])
 obs_agg <- rowSums(obs)
 
 
 ## Calculate daily scores for quadratic and Poisson loss
-scores_pois_agg <- scores_quad_agg <- matrix(0, nrow = ndays, ncol = 4)
-for (i in 1:4) {
-  mname <- paste0("model", i, "_agg")
-  scores_pois_agg[ ,i] <- Spois(get(mname), obs_agg) 
-  scores_quad_agg[ ,i] <- Squad(get(mname), obs_agg) 
+scores_pois_agg <- scores_quad_agg <- matrix(0, nrow = ndays, ncol = nmods)
+for (i in 1:nmods) {
+  scores_pois_agg[ ,i] <- Spois(models_agg[[i]], obs_agg) 
+  scores_quad_agg[ ,i] <- Squad(models_agg[[i]], obs_agg) 
 }
 
-colMeans(scores_pois_agg)
-colMeans(scores_quad_agg)
-
-save(scores_pois_agg, scores_quad_agg, file = paste0(path, "/scores_agg.RData"))
+# colMeans(scores_pois_agg)
+# colMeans(scores_quad_agg)
 
 ## Murphy diagrams
+
+
+## TO DO: 
+# This has to be changed to a function if the climate
+# subset part is sorted out
 
 # Include climatology: Have to switch
 # to reduced testing region
@@ -194,50 +196,21 @@ for (i in 1:5) {
 
 ## Time dependent plots of scores
 
-## logarithmic
-filePath <- "~/Documents/_temp/Case/Plots/plot_pois_time_agg.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, scores_pois_agg[ ,1], ty = "l", ylim = c(-14, 30), xlab = "days",
-     ylab = "score", main = "Logarithmic score (fully aggregated)")
-for (i in 2:4) {
-  lines(1:ndays, scores_pois_agg[ ,i], col = cols[i])
-}
-legend(4500, 29, mnames, col = cols, lwd = 2)
-dev.off()
+## Poisson
+filePath <- paste(fpath, "plot_pois_time_agg.pdf", sep = "/")
+plotScores(scores_pois_agg, times, mnames, mcols, filePath, events = events, logscale = F) 
 
-## logarithmic (log scale)
-filePath <- "~/Documents/_temp/Case/Plots/plot_pois_time_agg_log.pdf"
-cutoff <- 0.01
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, log(pmax(scores_pois_agg[ ,1], cutoff)), ylim = c(log(cutoff)+0.1, 3.5), ty = "l", xlab = "days",
-     ylab = "score (log scale)", main = "Logarithmic score (fully aggregated, log scale)")
-for (i in 2:4) {
-  lines(1:ndays, log(pmax(scores_pois_agg[ ,i], cutoff)), col = cols[i])
-}
-legend(-85, 3.5, mnames, col = cols, lwd = 2)
-dev.off()
+## Poisson (log scale)
+filePath <- paste(fpath, "plot_pois_time_agg_log.pdf", sep = "/")
+plotScores(scores_pois_agg, times, mnames, mcols, filePath, events = events) 
 
 ## quadratic
-filePath <- "~/Documents/_temp/Case/Plots/plot_quad_time_agg.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, scores_quad_agg[ ,1], ty = "l", ylim = c(0,400), xlab = "days",
-     ylab = "score", main = "Quadratic score (fully aggregated)")
-for (i in 2:4) {
-  lines(1:ndays, scores_quad_agg[ ,i], col = cols[i])
-}
-legend(4600, 398, mnames, col = cols, lwd = 2)
-dev.off()
+filePath <- paste(fpath, "plot_quad_time_agg.pdf", sep = "/")
+plotScores(scores_quad_agg, times, mnames, mcols, filePath, events = events, logscale = F) 
 
 ## quadratic (log scale)
-filePath <- "~/Documents/_temp/Case/Plots/plot_quad_time_agg_log.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ndays, log(scores_quad_agg[ ,1]), ty = "l", ylim = c(-10.5, 7), xlab = "days",
-     ylab = "score (log scale)", main = "Quadratic score (fully aggregated, log scale)")
-for (i in 2:4) {
-  lines(1:ndays, log(scores_quad_agg[ ,i]), col = cols[i])
-}
-legend(0, 6.8, mnames, col = cols, lwd = 2)
-dev.off()
+filePath <- paste(fpath, "plot_quad_time_agg_log.pdf", sep = "/")
+plotScores(scores_quad_agg, times, mnames, mcols, filePath, events = events) 
 
 ## Plot of Murphy diagrams
 cols2 <- c(cols, "magenta")
