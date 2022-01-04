@@ -9,7 +9,7 @@ source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
 
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
+fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots_TEST"
 
 ############################################
 #### Part I - Scores and Murphy diagram ####
@@ -76,38 +76,11 @@ plotScores(scores_quad, times, mnames, mcols, filePath, events = events)
 
 
 ## TO DO:
-# Create function for Murphy diagrams
+# Interchange rows and columns for Mphy_diag array
 
 ## Plot of Murphy diagram
 filePath <- "~/Documents/_temp/Case/Plots/plot_Murphy_diag.pdf"
 plotElementary(Mphy_diag, grd, mnames, mcols, filePath, "score")
-
-
-plotElementary <- function(vals, grd, mnames, mcols, filePath, ylab, mltys = NULL,
-                           whichmods = 1:4) {
-  ntheta <- length(grd)
-  lgrd <- log(grd)
-  nmods <- length(whichmods)
-  if (missing(mltys)) mltys <- rep(1, nmods)
-  mnames <- mnames[whichmods]
-  mcols <- mcols[whichmods]
-  mltys <- mltys[whichmods]
-  ylim <- c(min(vals), max(vals))
-  # Start plotting
-  pdf(filePath, width = 8, height = 5.5)
-  par(mar = c(4, 4, 0.5, 0.5))
-  plot(1:ntheta, 1:ntheta, ylim = ylim, xlab = "log(theta)", ylab = ylab,
-       xaxt = "n", col = "transparent")
-  for (i in 1:nmods) {
-    lines(1:ntheta, vals[ ,i], col = mcols[i], lty = mltys[i])
-  }
-  # create log axis
-  ticks <- axis(1, labels = F, tick = F)
-  labs <- round(lgrd[pmax(1,ticks)], 1)
-  axis(1, at = ticks, labels = labs)
-  legend(2, ylim[2], mnames, col = mcols, lty = mltys, lwd = 2)
-  dev.off()
-}
 
 
 ##############################################
@@ -130,12 +103,6 @@ for (i in 1:nmods) {
 # colMeans(scores_quad_agg)
 
 ## Murphy diagrams
-
-
-## TO DO: 
-# This has to be changed to a function if the climate
-# subset part is sorted out
-
 # Include climatology: Have to switch
 # to reduced testing region
 source('~/Documents/_temp/Case/clima_subset.R')
@@ -191,45 +158,38 @@ filePath <- paste(fpath, "plot_quad_time_agg_log.pdf", sep = "/")
 plotScores(scores_quad_agg, times, mnames, mcols, filePath, events = events) 
 
 ## Plot of Murphy diagrams
-cols2 <- c(cols, "magenta")
+mcols2 <- c(mcols, "magenta")
 mnames2 <- c(mnames, "Clima")
+mnames3 <- c(mnames2, paste0("RC_", mnames2))
 
 ## Murphy diagram 1 (only aggregated forecasts)
 filePath <- "~/Documents/_temp/Case/Plots/plot_Murphy_diag_agg.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ntheta, Mphy_diag_agg[1, ], ty = "l", xlab = "log(theta)",
-     ylab = "score", main = "Murphy diagram (fully aggregated)", xaxt = "n", ylim = c(0,0.18))
-# get different x-axis
-for (i in 2:5) {
-  lines(1:ntheta, Mphy_diag_agg[i, ], col = cols2[i])
-}
-# create log axis
-ticks <- axis(1, labels = F, tick = F)
-labs <- round(lgrd[pmax(1,ticks)], 1)
-axis(1, at = ticks, labels = labs)
-legend(3, 0.17, mnames2, col = cols2, lwd = 2)
-dev.off()
-
+plotElementary(Mphy_diag_agg, grd, mnames2, mcols2, filePath, "score", whichmods = 1:5)
 
 
 ## Murphy diagram 2 (aggregated and recalibrated forecasts)
 filePath <- "~/Documents/_temp/Case/Plots/plot_Murphy_diag_agg_pav.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ntheta, Mphy_diag_agg[1, ], ty = "l", xlab = "log(theta)",
-     ylab = "score", main = "Murphy diagram (fully aggregated)", xaxt = "n", ylim = c(0,0.18))
-# get different x-axis
-for (i in 1:5) {
-  lines(1:ntheta, Mphy_diag_pav[i, ], col = cols2[i], lty = 2)
-  if (i == 1) next
-  lines(1:ntheta, Mphy_diag_agg[i, ], col = cols2[i])
-}
-# create log axis
-ticks <- axis(1, labels = F, tick = F)
-labs <- round(lgrd[pmax(1,ticks)], 1)
-axis(1, at = ticks, labels = labs)
-legend(3, 0.17, mnames2, col = cols2, lwd = 2, title = "Original")
-legend(3, 0.095, mnames2, col = cols2, lwd = 2, lty = 2, title = "Recalibrated")
-dev.off()
+plotElementary(rbind(Mphy_diag_agg, Mphy_diag_pav), grd, mnames3, c(mcols2, mcols2), filePath,
+               "score", mltys = rep(1:2, ea = 5), whichmods = 1:10)
+
+# Remove after testing
+# pdf(filePath, width = 8, height=6)
+# plot(1:ntheta, Mphy_diag_agg[1, ], ty = "l", xlab = "log(theta)",
+#      ylab = "score", main = "Murphy diagram (fully aggregated)", xaxt = "n", ylim = c(0,0.18))
+# # get different x-axis
+# for (i in 1:5) {
+#   lines(1:ntheta, Mphy_diag_pav[i, ], col = cols2[i], lty = 2)
+#   if (i == 1) next
+#   lines(1:ntheta, Mphy_diag_agg[i, ], col = cols2[i])
+# }
+# # create log axis
+# ticks <- axis(1, labels = F, tick = F)
+# labs <- round(lgrd[pmax(1,ticks)], 1)
+# axis(1, at = ticks, labels = labs)
+# legend(3, 0.17, mnames2, col = cols2, lwd = 2, title = "Original")
+# legend(3, 0.095, mnames2, col = cols2, lwd = 2, lty = 2, title = "Recalibrated")
+# dev.off()
+
 
 ## Plot of mean forecasts over time
 filePath <- "~/Documents/_temp/Case/Plots/plot_mean_forecasts.pdf"
@@ -243,4 +203,7 @@ for (i in 2:5) {
 }
 legend(10, 4.1, mnames2, col = cols2, lwd = 2)
 dev.off()
+
+## TO DO:
+## Use plotScores function for this plot
 

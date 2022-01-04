@@ -218,6 +218,33 @@ plotScores <- function(scores, times, mnames, mcols, filePath, events = NULL, lo
 }
 
 
+# Plot scores, MCB, etc. with respect to elementary scoring functions
+plotElementary <- function(vals, grd, mnames, mcols, filePath, ylab, mltys = NULL,
+                           whichmods = 1:4) {
+  ntheta <- length(grd)
+  lgrd <- log(grd)
+  nmods <- length(whichmods)
+  if (missing(mltys)) mltys <- rep(1, nmods)
+  mnames <- mnames[whichmods]
+  mcols <- mcols[whichmods]
+  mltys <- mltys[whichmods]
+  ylim <- c(min(vals), max(vals))
+  # Start plotting
+  pdf(filePath, width = 8, height = 5.5)
+  par(mar = c(4, 4, 0.5, 0.5))
+  plot(1:ntheta, 1:ntheta, ylim = ylim, xlab = "log(theta)", ylab = ylab,
+       xaxt = "n", col = "transparent")
+  for (i in 1:nmods) {
+    lines(1:ntheta, vals[i, ], col = mcols[i], lty = mltys[i])
+  }
+  # create log axis
+  ticks <- axis(1, labels = F, tick = F)
+  labs <- round(lgrd[pmax(1,ticks)], 1)
+  axis(1, at = ticks, labels = labs)
+  legend(2, ylim[2], mnames, col = mcols, lty = mltys, lwd = 2)
+  dev.off()
+}
+
 # Plot a map of score differences by individually
 # coloring the grid cells
 diffMap <- function(vals, cells, filePath, events = NULL, borders = T) {
