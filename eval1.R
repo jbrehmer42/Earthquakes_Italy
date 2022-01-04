@@ -27,28 +27,6 @@ colMeans(scores_pois)
 colMeans(scores_quad)
 
 
-## Score for multiple bins of Taggart's decomposed
-## scoring functions for the mean
-binlim <- c(0, exp(-14), exp(-12), exp(-11.2), exp(-10), 20)
-scores_bin <- list()
-
-for (i in 1:(length(binlim)-1)) {
-  a <- binlim[i]
-  b <- binlim[i+1]
-  vals <- matrix(0, nrow = ndays, ncol = nmods)
-  for (k in 1:nmods) {
-    cat("\n")
-    cat(paste(mname, "bin", i, "of", length(binlim)-1))
-    for (j in 1:ndays) {
-      vals[j,k] <- Sbin( models[[k]][j, ], obs[j, ], a, b)
-    }
-  }
-  scores_bin[[i]] <- vals
-}
-
-save(scores_bin, file = paste0(dpath, '/scores_bin.RData'))
-
-
 ## Murphy diagrams
 # Define suitable grid after checking the quantiles of
 # the forecasts models (on logarithmic scale)
@@ -97,39 +75,39 @@ plotScores(scores_quad, times, mnames, mcols, filePath, events = events)
 
 
 
-# Plot of daily scores (lowest bin score)
-## TO DO:
-# Test this section
-filePath <- paste(fpath, "plot_bin_time.pdf", sep = "/")
-plotScores(scores_bin[[1]], times, mnames, mcols, filePath, events = events, logscale = F)
-# pdf(filePath, width = 8, height=6)
-# plot(1:ndays, scores_bin[[1]][ ,1], ty = "l", ylim = c(4.7e-9, 6.2e-9), xlab = "days",
-#      ylab = "score", main = "Lowest bin score", xaxt = "n")
-# for (i in 2:4) {
-#   lines(1:ndays, scores_bin[[1]][ ,i], col = cols[i])
-# }
-# axis(1, at = which(tindex), labels = labs)
-# legend(0, 5.6e-9, mnames, col = cols, lwd = 2)
-# dev.off()
-
 ## TO DO:
 # Create function for Murphy diagrams
 
 ## Plot of Murphy diagram
 filePath <- "~/Documents/_temp/Case/Plots/plot_Murphy_diag.pdf"
-pdf(filePath, width = 8, height=6)
-plot(1:ntheta, Mphy_diag[ ,1], ty = "l", ylim = c(0,0.16), xlab = "log(theta)",
-     ylab = "score", main = "Murphy diagram", xaxt = "n")
-# get different x-axis
-for (i in 2:4) {
-  lines(1:ntheta, Mphy_diag[ ,i], col = cols[i])
+plotElementary(Mphy_diag, grd, mnames, mcols, filePath, "score")
+
+
+plotElementary <- function(vals, grd, mnames, mcols, filePath, ylab, mltys = NULL,
+                           whichmods = 1:4) {
+  ntheta <- length(grd)
+  lgrd <- log(grd)
+  nmods <- length(whichmods)
+  if (missing(mltys)) mltys <- rep(1, nmods)
+  mnames <- mnames[whichmods]
+  mcols <- mcols[whichmods]
+  mltys <- mltys[whichmods]
+  ylim <- c(min(vals), max(vals))
+  # Start plotting
+  pdf(filePath, width = 8, height = 5.5)
+  par(mar = c(4, 4, 0.5, 0.5))
+  plot(1:ntheta, 1:ntheta, ylim = ylim, xlab = "log(theta)", ylab = ylab,
+       xaxt = "n", col = "transparent")
+  for (i in 1:nmods) {
+    lines(1:ntheta, vals[ ,i], col = mcols[i], lty = mltys[i])
+  }
+  # create log axis
+  ticks <- axis(1, labels = F, tick = F)
+  labs <- round(lgrd[pmax(1,ticks)], 1)
+  axis(1, at = ticks, labels = labs)
+  legend(2, ylim[2], mnames, col = mcols, lty = mltys, lwd = 2)
+  dev.off()
 }
-# create log axis
-ticks <- axis(1, labels = F, tick = F)
-labs <- round(lgrd[pmax(1,ticks)], 1)
-axis(1, at = ticks, labels = labs)
-legend(2, 0.157, mnames, col = cols, lwd = 2)
-dev.off()
 
 
 ##############################################
@@ -231,6 +209,8 @@ labs <- round(lgrd[pmax(1,ticks)], 1)
 axis(1, at = ticks, labels = labs)
 legend(3, 0.17, mnames2, col = cols2, lwd = 2)
 dev.off()
+
+
 
 ## Murphy diagram 2 (aggregated and recalibrated forecasts)
 filePath <- "~/Documents/_temp/Case/Plots/plot_Murphy_diag_agg_pav.pdf"
