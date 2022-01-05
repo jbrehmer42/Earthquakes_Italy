@@ -87,8 +87,8 @@ simple_diag <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = F, re
 
 
 
-xlim <- c(min(bins$LON), max(bins$LON))
-ylim <- c(min(bins$LAT), max(bins$LAT))
+# xlim <- c(min(bins$LON), max(bins$LON))
+# ylim <- c(min(bins$LAT), max(bins$LAT))
 plot_map <- function(vals, main = "", evts = NULL, borders = T) {
   border_col <- rgb(0, 0, 0, alpha = 0.4) 
   plot(1, 1, xlim = xlim, ylim = ylim, col = "white", asp = 1.3, xaxt = "n",

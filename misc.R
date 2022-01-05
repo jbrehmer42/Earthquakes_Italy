@@ -231,3 +231,17 @@ points(clima$LON, clima$LAT, pch = 15, col = vals, cex = 0.5)
 map('world', fill = F, add = T, col = border_col)
 dev.off()
 
+
+##################################################################################################################
+##################################################################################################################
+
+
+# Additional code for number of
+# events in (reduced) testing region
+n4 <- dim(M4events)[1]
+subs4 <- rep(0, n4)
+for (i in 1:n4) {
+  subs4[i] <- any( M4events$N[i] == bins$N)
+}
+n_per_year <- sum(subs4) / (dim(model1)[1] / 365)
+

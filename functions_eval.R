@@ -130,3 +130,22 @@ neigh_mat <- function(cells, k) {
   }
   return(mat)
 }
+
+# Compute the intersection of the testing region
+# of the forecast models and climatological model
+region_intersect <- function(clima, bins) {
+  ## Compute intersection of testing regions
+  cbins <- cbind(bins$LON, bins$LAT)
+  cclima <- cbind(clima$LON, clima$LAT)
+  z <- unique(rbind(cbins, cclima))
+  unibins <- c()
+  for (i in 1:dim(z)[1]) {
+    ibins <- any( (cbins[ ,1] == z[i,1]) & (cbins[ ,2] == z[i,2]) )
+    iclima <- any( (cclima[ ,1] == z[i,1]) & (cclima[ ,2] == z[i,2]) )
+    if (ibins && iclima) unibins <- rbind(unibins, z[i, ])
+  }
+  # compute subsets as logical indices
+  model.subs <- apply(cbins,  1, function(x) any( (x[1] == unibins[ ,1]) & (x[2] == unibins[ ,2]) ) )
+  clima.subs <- apply(cclima, 1, function(x) any( (x[1] == unibins[ ,1]) & (x[2] == unibins[ ,2]) ) )
+  return(list(model = model.subs, clima = clima.subs))
+}

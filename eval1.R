@@ -26,6 +26,7 @@ for (i in 1:nmods) {
 colMeans(scores_pois)
 colMeans(scores_quad)
 
+### --- TEST ---------------------------------->
 
 ## Murphy diagrams
 # Define suitable grid after checking the quantiles of
@@ -88,7 +89,7 @@ plotElementary(Mphy_diag, grd, mnames, mcols, filePath, "score")
 
 # Aggregate mean forecasts
 models_agg <- list()
-for (i in 1:nmods) models_agg[[i]] rowSums(models[[i]])
+for (i in 1:nmods) models_agg[[i]] <- rowSums(models[[i]])
 obs_agg <- rowSums(obs)
 
 
@@ -105,24 +106,30 @@ for (i in 1:nmods) {
 ## Murphy diagrams
 # Include climatology: Have to switch
 # to reduced testing region
-source('~/Documents/_temp/Case/clima_subset.R')
+subs <- region_intersect(clima, bins)
+
+## subset forecast models and observations
+clima <- clima[subs$clima, ]
+obs <- obs[ ,subs$model]
+for (i in 1:nmods) models[[i]] models[[i]][ ,subs$model]
 
 # Aggregate mean forecasts again, as we
 # now consider a smaller testing region
-model1_agg <- rowSums(model1)
-model2_agg <- rowSums(model2)
-model3_agg <- rowSums(model3)
-model4_agg <- rowSums(model4)
+models_agg <- list()
+for (i in 1:nmods) models_agg[[i]] <- rowSums(models[[i]])
 obs_agg <- rowSums(obs)
+# use climatology as last model
+models_agg[[nmods+1]] <- rep(sum(clima$RATE), ndays)
 
 # PAV-transformed forecasts and climatology
-model5_agg <- rep(sum(clima$RATE), ndays)
 # attention: this changes the ordering of the forecasts
-model5_pav <- isoreg(model5_agg, obs_agg)$yf
-model1_pav <- isoreg(model1_agg, obs_agg)$yf
-model2_pav <- isoreg(model2_agg, obs_agg)$yf
-model3_pav <- isoreg(model3_agg, obs_agg)$yf
-model4_pav <- isoreg(model4_agg, obs_agg)$yf
+models_pav <- list()
+for (i in 1:(nmods+1)) models_pav <- isoreg(models_agg[[i]], obs_agg)$yf
+# model5_pav <- isoreg(model5_agg, obs_agg)$yf
+# model1_pav <- isoreg(model1_agg, obs_agg)$yf
+# model2_pav <- isoreg(model2_agg, obs_agg)$yf
+# model3_pav <- isoreg(model3_agg, obs_agg)$yf
+# model4_pav <- isoreg(model4_agg, obs_agg)$yf
 
 # Define suitable grid after checking the quantiles of
 # the forecasts models (on logarithmic scale)
@@ -130,12 +137,10 @@ ntheta <- 100
 lgrd <- seq(-6, 2, len = ntheta)
 grd <- exp(lgrd)
 
-Mphy_diag_agg <- Mphy_diag_pav <- matrix(0, ncol = ntheta, nrow = 5)
-for (i in 1:5) {
-  mname1 <- paste0("model", i, "_agg")
-  mname2 <- paste0("model", i, "_pav")
-  Mphy_diag_agg[i, ] <- colMeans( Sthet_vec(get(mname1), obs_agg, grd) )
-  Mphy_diag_pav[i, ] <- colMeans( Sthet_vec(get(mname2), obs_agg[order(get(mname1))], grd) )
+Mphy_diag_agg <- Mphy_diag_pav <- matrix(0, ncol = ntheta, nrow = nmods+1)
+for (i in 1:(nmods+1)) {
+  Mphy_diag_agg[i, ] <- colMeans( Sthet_vec(models_agg[[i]], obs_agg, grd) )
+  Mphy_diag_pav[i, ] <- colMeans( Sthet_vec(models_pav[[i]], obs_agg[order(models_agg[[i]])], grd) )
 }
 
 
