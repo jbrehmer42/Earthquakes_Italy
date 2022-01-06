@@ -44,7 +44,7 @@ Sthet_vec <- function(x, y, theta) {
   indic <- outer(x, theta, function(x,y) as.numeric(y < x))
   theta_mat <- matrix(theta, nrow = length(x), ncol = length(theta), byrow = T)
   val <- pmax(y - theta_mat, 0) - pmax(x - theta_mat, 0) - (y - x) * indic
-  return(1/2 * val)
+  return(1/2 * val )
 }
 
 
@@ -133,19 +133,19 @@ neigh_mat <- function(cells, k) {
 
 # Compute the intersection of the testing region
 # of the forecast models and climatological model
-region_intersect <- function(clima, bins) {
+region_intersect <- function(clima, cells) {
   ## Compute intersection of testing regions
-  cbins <- cbind(bins$LON, bins$LAT)
+  ccells <- cbind(cells$LON, cells$LAT)
   cclima <- cbind(clima$LON, clima$LAT)
-  z <- unique(rbind(cbins, cclima))
-  unibins <- c()
+  z <- unique(rbind(ccells, cclima))
+  unicells <- c()
   for (i in 1:dim(z)[1]) {
-    ibins <- any( (cbins[ ,1] == z[i,1]) & (cbins[ ,2] == z[i,2]) )
+    icells <- any( (ccells[ ,1] == z[i,1]) & (ccells[ ,2] == z[i,2]) )
     iclima <- any( (cclima[ ,1] == z[i,1]) & (cclima[ ,2] == z[i,2]) )
-    if (ibins && iclima) unibins <- rbind(unibins, z[i, ])
+    if (icells && iclima) unicells <- rbind(unicells, z[i, ])
   }
   # compute subsets as logical indices
-  model.subs <- apply(cbins,  1, function(x) any( (x[1] == unibins[ ,1]) & (x[2] == unibins[ ,2]) ) )
-  clima.subs <- apply(cclima, 1, function(x) any( (x[1] == unibins[ ,1]) & (x[2] == unibins[ ,2]) ) )
+  model.subs <- apply(ccells, 1, function(x) any( (x[1] == unicells[ ,1]) & (x[2] == unicells[ ,2]) ) )
+  clima.subs <- apply(cclima, 1, function(x) any( (x[1] == unicells[ ,1]) & (x[2] == unicells[ ,2]) ) )
   return(list(model = model.subs, clima = clima.subs))
 }

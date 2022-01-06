@@ -235,13 +235,13 @@ plotElementary <- function(vals, grd, mnames, mcols, filePath, ylab, mltys = NUL
   plot(1:ntheta, 1:ntheta, ylim = ylim, xlab = "log(theta)", ylab = ylab,
        xaxt = "n", col = "transparent")
   for (i in 1:nmods) {
-    lines(1:ntheta, vals[i, ], col = mcols[i], lty = mltys[i])
+    lines(1:ntheta, vals[ ,i], col = mcols[i], lty = mltys[i])
   }
   # create log axis
   ticks <- axis(1, labels = F, tick = F)
   labs <- round(lgrd[pmax(1,ticks)], 1)
   axis(1, at = ticks, labels = labs)
-  legend(2, ylim[2], mnames, col = mcols, lty = mltys, lwd = 2)
+  legend(1, ylim[2], mnames, col = mcols, lty = mltys, lwd = 2)
   dev.off()
 }
 
