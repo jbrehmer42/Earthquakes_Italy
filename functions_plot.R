@@ -5,7 +5,7 @@
 library(maps)
 
 # function to create a reliability diagram
-simple_diag <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = F, resamp = NULL) {
+plotReliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = F, resamp = NULL) {
   # Plots a mean reliability diagram similar
   # to the one in Gneiting and Resin (2021)
   # Resampling is done, but this is not as
