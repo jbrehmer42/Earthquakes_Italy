@@ -86,15 +86,13 @@ plotReliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = F
 }
 
 
-
-
-plot_map <- function(vals, cells, main = "", evts = NULL, borders = T) {
+plot_map <- function(colvals, cells, main = "", evts = NULL, borders = T) {
   border_col <- rgb(0, 0, 0, alpha = 0.4)
   xlim <- c(min(cells$LON), max(cells$LON))
   ylim <- c(min(cells$LAT), max(cells$LAT))
   plot(1, 1, xlim = xlim, ylim = ylim, col = "white", asp = 1.3, xaxt = "n",
        yaxt = "n", xlab = "", ylab = "", main = main)
-  points(cells$LON, cells$LAT, pch = 15, col = vals, cex = 0.4)
+  points(cells$LON, cells$LAT, pch = 15, col = colvals, cex = 0.4)
   if (borders) map('world', fill = F, add = T, col = border_col)
   if (!is.null(evts)) {
     cellN <- unique(evts$N)
@@ -116,9 +114,7 @@ mapComparison <- function(vals, pal, cells, lims, ncols, filePath, offset = 0, e
   for (i in 1:nmods) {
     scl <- (log(vals[ ,i] + offset) - lims[1]) / (lims[2] - lims[1])
     col_scl <- pal[round(scl * (ncols-1)) + 1]
-    # main <- paste0("Model ", i)
-    main <- mnames[i]
-    plot_map(col_scl, cells, main = main, evts = evts)
+    plot_map(col_scl, cells, main = mnames[i], evts = evts)
   }
   ## add color bar
   par(mar = c(4,1,1,4), mgp = c(3,0,-1))
@@ -137,27 +133,21 @@ mapComparison <- function(vals, pal, cells, lims, ncols, filePath, offset = 0, e
 
 ## Create four maps for the skill score
 ## use truncation for negative values
-mapSkills <- function(vals, pal, cells, lims, ncols, filePath, offset = 0, evts = NULL) {
-  # neg_col <- 0.66       # blue # hue in hsv colors
-  # pos_col <- 0          # red  # hue in hsv colors
-  pos_col <- 0.35       # green
-  neg_col <- 0          # red
+mapSkills <- function(vals, pal, cells, lims, ncols, filePath, evts = NULL) {
   nmods <- dim(vals)[2]
+  ncells <- dim(cells)[1]
   pdf(filePath, width = 8, height = 7)
   layout(matrix(c(1,2,5,3,4,5), 2, 3, byrow = TRUE), widths = c(0.42, 0.42, 0.16))
   ## start with maps
   par(mar = c(2/3,2/3,1.5,1/3))
   for (i in 1:nmods) {
-    skills <- pmax(vals[ ,i], skl_min)
+    skills <- pmax(vals[ ,i], lims[1])
     scl_pos <-  skills[skills >= 0]
-    scl_neg <-  - (skills[skills < 0] - skl_min) / skl_min
-    vals <- rep("", nbins)
-    vals[skills >= 0] <- hsv(pos_col, scl_pos, v = 1 - 0.4*scl_pos )
-    vals[skills < 0]  <- hsv(neg_col, 1 - scl_neg)
-    # main <- paste0("Model ", i)
-    main <- mnames[i]
-    # plot_map(vals, main = main)
-    plot_map(vals, main = main, evts = M4events)
+    scl_neg <-  - (skills[skills < 0] - lims[1]) / lims[1]
+    col_scl <- rep("", ncells)
+    col_scl[skills >= 0] <- hsv(pal[1], scl_pos, v = 1 - 0.4*scl_pos )
+    col_scl[skills < 0]  <- hsv(pal[2], 1 - scl_neg)
+    plot_map(col_scl, cells, main = mnames[i], evts = evts)
   }
   ## add color bar
   par(mar = c(4,1,1,4), mgp = c(3,0,-1))
@@ -166,31 +156,36 @@ mapSkills <- function(vals, pal, cells, lims, ncols, filePath, offset = 0, evts 
   nticks <- 3
   plot(1,1, col = "white", xlim = c(0,1), ylim = c(-len_neg, len_pos), asp = 1,
        xaxt = "n", yaxt = "n", xlab = "", ylab = "", bty = "n")
-  labs <- round(seq(0, skl_max, len = nticks+1), 2)
-  labs <- c(round(seq(skl_min, 0, len = 2*nticks), 2), labs[2:length(labs)])
+  labs <- round(seq(0, lims[2], len = nticks+1), 2)
+  labs <- c(round(seq(lims[1], 0, len = 2*nticks), 2), labs[2:length(labs)])
   ats <- seq(0, len_pos, len = nticks+1)
   ats <- c(seq(-len_neg, 0, len = 2*nticks), ats[2:length(ats)])
-  labs[1] <- paste0("< ", skl_min)
+  labs[1] <- paste0("< ", lims[1])
   axis(4, at = ats, labels = labs, las = 1)
   kk <- 50
+  # positive part
   for (l in 1:(kk-1)) {
     rect(0, (l-1) * len_pos/(kk - 1), 1,  l * len_pos/(kk - 1), 
-         col = hsv(pos_col, l/(kk-1), v = 1 - 0.4 * l/(kk-1)), border = NA)
+         col = hsv(pal[1], l/(kk-1), v = 1 - 0.4 * l/(kk-1)), border = NA)
   }
   kk <- 2*kk
+  # negative part
   for (l in 1:(kk-1)) {
     rect(0, - (l-1) * len_neg/(kk - 1), 1,  - l * len_neg/(kk - 1), 
-         col = hsv(neg_col, l/(kk-1)), border = NA)
+         col = hsv(pal[2], l/(kk-1)), border = NA)
   }
   dev.off()
 }
 
 # Plot a map of score differences by individually
 # coloring the grid cells
-mapDifferences <- function(vals, cells, filePath, evts = NULL, borders = T, main = "") {
+mapDifferences <- function(vals, pal, cells, filePath, evts = NULL, borders = T, main = "") {
   # Input values:
   # vals     - Numeric values corresponding to
   #            the grid cells
+  # pal      - colors for positive and negative
+  #            values specified via parameter
+  #            'hue' in hsv colors
   # cells    - Data frame of grid cells
   # filePath - File path for .pdf file
   # evts     - Data frame of events (optional)
@@ -200,16 +195,14 @@ mapDifferences <- function(vals, cells, filePath, evts = NULL, borders = T, main
   # Set graphical paramters e.g. colors
   ylen <- 5
   nticks <- 7
-  neg_col <- 0.66       # spec via hue in hsv colors
-  pos_col <- 0          # spec via hue in hsv colors
   # Transform values in vals into colors: Scale them to values in the
   # interval [-1, 1] and interpret these values as saturation
   val_abs <- 1.01 * max(abs(vals))
   scl <- (vals + val_abs) / (2 * val_abs)
   scl <- 2 * scl - 1
   col_scl <- rep("", length(vals))
-  col_scl[scl >= 0] <- hsv(pos_col, scl[scl >= 0])
-  col_scl[scl < 0]  <- hsv(neg_col, -scl[scl < 0])
+  col_scl[scl >= 0] <- hsv(pal[1], scl[scl >= 0])
+  col_scl[scl < 0]  <- hsv(pal[2], -scl[scl < 0])
   # Create pdf file with two parts
   pdf(filePath, width = 5, height = 4.4)
   layout(matrix(1:2, 1, 2, byrow = T), widths = c(0.78, 0.22))
@@ -226,10 +219,12 @@ mapDifferences <- function(vals, cells, filePath, evts = NULL, borders = T, main
   axis(4, at = seq(-ylen, ylen, len = nticks), labels = labs, las = 1)
   for (l in 1:(kk-1)) {
     sat <- l/(kk-1)
+    # positive part
     rect(0, (l-1) * ylen/(kk - 1), 1/2,  l * ylen/(kk - 1), 
-         col = hsv(pos_col, sat), border = NA)
+         col = hsv(pal[1], sat), border = NA)
+    # negative part
     rect(0, - (l-1) * ylen/(kk - 1), 1/2,  -l * ylen/(kk - 1), 
-         col = hsv(neg_col, sat), border = NA)
+         col = hsv(pal[2], sat), border = NA)
   }
   dev.off()
 }

@@ -1,5 +1,5 @@
-## Spatial plots of scores, calibration, and
-## discrimination over testing area
+## Spatial plots of scores, calibration,
+## discrimination, and skill over testing area
 
 # Do Data preparation
 source('~/Documents/Code/Earthquakes_Italy/data_prep.R')
@@ -7,7 +7,8 @@ source('~/Documents/Code/Earthquakes_Italy/data_prep.R')
 source('~/Documents/Code/Earthquakes_Italy/functions_eval.R')
 # source functions for plotting
 source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
-
+# source functions for data preparation
+source('~/Documents/Code/Earthquakes_Italy/functions_prep.R')
 
 # Path for figures
 fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots_TEST"
@@ -24,7 +25,6 @@ UNC_map <- decomp$UNC
 SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = nmods, nrow = ncells)
 
 ## Do spatial plots
-
 # create color vector 
 #pal <- paste("gray", round(scl * 100), sep = "")   # white = high score
 ncols <- 200
@@ -51,37 +51,40 @@ mapComparison(DSC_map, pal, cells, lims, ncols, filePath, offset = offs)
 
 ## Create maps for score differences
 rootName <- paste(fpath, "map_score_diff", sep = "/")
+pal <- c(0, 0.66)    # red and blue
 for (i in 1:4) {
   for (j in 1:4) {
     if (i >= j) next
     filePath <- paste0(rootName, "_", i, j, ".pdf")
-    mapDifferences(SCR_map[ ,i] - SCR_map[ ,j], cells, filePath)
+    mapDifferences(SCR_map[ ,i] - SCR_map[ ,j], pal, cells, filePath)
   }
 }
 
-
-
-## THESE REMAIN TO DO....
 ## Create maps for skill scores
 ## Since we use the climatology the testing
 ## region changes we have to modify SCR_map
 
-# Switch to reduced testing region
-source('~/Documents/_temp/Case/clima_subset.R')
-# Load plotting functions
-source('~/Documents/_temp/Case/plot_functions.R')
+## Include climatology: Have to switch
+## to reduced testing region
+subs <- region_intersect(clima, cells)
 
-# Define climatology
-model5 <- matrix(clima$RATE, ncol = ncells, nrow = ndays, byrow = TRUE)
-# Compute decomposition
-decomp <- bin_decomp(model5, obs, scf = Spois2)
-Sclima <- decomp$MCB - decomp$DSC + decomp$UNC
-SCR_map <- SCR_map[bin.subs, ]
-SKL_map <- ( matrix(Sclima, ncol = 4, nrow = ncells) - SCR_map ) / matrix(Sclima, ncol = 4, nrow = ncells)
+# subset forecast models and observations
+clima <- clima[subs$clima, ]
+cells <- cells[subs$model, ]
+ncells <- dim(cells)[1]
+obs <- obs[ ,subs$model]
+# subset events
+events <- filterRegion(events, cells)
+
+# Compute average scores for climatology
+scrClima <- colMeans( Spois(matrix(clima$RATE, ncol = ncells, nrow = ndays, byrow = TRUE), obs) )
+gc()
+SCR_map <- SCR_map[subs$model, ]
+SKL_map <- ( matrix(scrClima, ncol = nmods, nrow = ncells) - SCR_map ) / matrix(scrClima, ncol = nmods, nrow = ncells)
 # Do plotting
-skl_max <- 1
-skl_min <- -10
+# Specify colours for positive and negative 
+# values (0.66 = blue, 0 = red, 0.35 = green)
+pal <- c(0.35, 0)
+lims <- c(-10, 1)
 filePath <- paste(fpath, "map_skill_score.pdf", sep = "/")
-# call skill functions
-
-
+mapSkills(SKL_map, pal, cells, lims, ncols, filePath, evts = events)
