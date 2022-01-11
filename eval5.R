@@ -1,6 +1,5 @@
-## Spatial plots of scores, calibration, and
-## discrimination over testing area
-## BUT NOW including spatial aggregation
+## Spatial plots of skill scores over testing area
+## Now including spatial AGGREGATION
 
 
 max_agg <- 8
