@@ -80,7 +80,7 @@ scrClima <- colMeans( Spois(matrix(clima$RATE, ncol = ncells, nrow = ndays, byro
 gc()
 SCR_map <- SCR_map[subs$model, ]
 SKL_map <- ( matrix(scrClima, ncol = nmods, nrow = ncells) - SCR_map ) / matrix(scrClima, ncol = nmods, nrow = ncells)
-# Do plotting
+# Plots
 # Specify colours for positive and negative 
 # values (0.66 = blue, 0 = red, 0.35 = green)
 pal <- c(0.35, 0)
