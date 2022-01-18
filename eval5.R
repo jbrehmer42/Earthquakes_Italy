@@ -9,7 +9,7 @@ source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
 source('~/Documents/Code/Earthquakes_Italy/functions_prep.R')
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots_TEST"
+fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
 
 max_agg <- 8
 
@@ -49,7 +49,7 @@ for (k in 1:max_agg) {
   ncols <- 200
   pal <- c(0.35, 0)
   lims <- c(-10, 1) 
-  filePath <- paste0(fpath, "/", "map_skill_score_agg", k, ".pdf")
+  filePath <- file.path(fpath, paste0("map_skill_score_agg", k, ".pdf"))
   mapSkills(SKL_map, pal, cells, lims, ncols, filePath, evts = events)
   if (k < max_agg) {
     rm(models, nmat)

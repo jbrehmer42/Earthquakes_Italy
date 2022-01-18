@@ -8,7 +8,7 @@ source('~/Documents/Code/Earthquakes_Italy/functions_eval.R')
 source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots_TEST"
+fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
 
 
 #################################################
@@ -30,15 +30,15 @@ rm(decomp)
 #save(MCB_diag, DSC_diag, UNC_diag, file = paste0(path, '/MCB_etc.RData'))
 
 ## Plot MCB diagram
-filePath <- paste(fpath, "plot_MCB_diag.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_MCB_diag.pdf")
 plotElementary(MCB_diag, grd, mnames, mcols, filePath, "MCB")
 
 ## Plot DSC diagram
-filePath <- paste(fpath, "plot_DSC_diag.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_DSC_diag.pdf")
 plotElementary(DSC_diag, grd, mnames, mcols, filePath, "DSC")
 
 ## Plot UNC diagram
-filePath <- paste(fpath, "plot_UNC_diag.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_UNC_diag.pdf")
 pdf(filePath, width = 8, height = 5.5)
 par(mar = c(4, 4, 0.5, 0.5))
 plot(1:ntheta, UNC_diag, ty = "l", xlab = "log(theta)", ylab = "UNC", xaxt = "n") 
@@ -74,7 +74,7 @@ UNC_diag_agg <- decomp$UNC
 ## of earthquakes (sum over all bins)
 
 # Reliability diagram
-filePath <- paste(fpath, "mean_reldiag.pdf", sep = "/")
+filePath <- file.path(fpath, "mean_reldiag.pdf")
 lim1 <- c(0, 6)
 pdf(filePath, width = 7.5, height = 8)
 par(mfrow = c(2,2), mar = c(3.6, 3, 2.2, 0.3))
@@ -84,7 +84,7 @@ for (i in 1:nmods) {
 dev.off()
 
 # Reliability diagram on log scale
-filePath <- paste(fpath, "mean_reldiag_log.pdf", sep = "/")
+filePath <- file.path(fpath, "mean_reldiag_log.pdf")
 lim2 <- c(0.05, lim1[2])
 pdf(filePath, width = 7.5, height = 8)
 par(mfrow = c(2,2), mar = c(3.6, 3, 2.2, 0.3))
@@ -95,15 +95,15 @@ dev.off()
 
 
 ## Plot MCB diagram
-filePath <- paste(fpath, "plot_MCB_diag_agg.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_MCB_diag_agg.pdf")
 plotElementary(MCB_diag_agg, grd, mnames, mcols, filePath, "MCB")
 
 ## Plot DSC diagram
-filePath <- paste(fpath, "plot_DSC_diag_agg.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_DSC_diag_agg.pdf")
 plotElementary(DSC_diag_agg, grd, mnames, mcols, filePath, "DSC")
 
 ## Plot UNC diagram
-filePath <- paste(fpath, "plot_UNC_diag_agg.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_UNC_diag_agg.pdf")
 pdf(filePath, width = 8, height = 6)
 plot(1:ntheta, UNC_diag_agg, ty = "l", xlab = "log(theta)", ylab = "UNC", xaxt = "n")
 # create log axis

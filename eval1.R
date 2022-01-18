@@ -9,7 +9,7 @@ source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
 
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots_TEST"
+fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
 
 ############################################
 #### Part I - Scores and Murphy diagram ####
@@ -48,7 +48,7 @@ for (j in 1:ntheta) {
 }
 tt <- Sys.time() - tt
 
-save(Mphy_list, file = paste0(dpath, '/Mphy_list.RData'))
+# save(Mphy_list, file = file.path(dpath, 'Mphy_list.RData'))
 
 Mphy_diag <- t( sapply(Mphy_list, "colMeans") )
 
@@ -57,24 +57,24 @@ Mphy_diag <- t( sapply(Mphy_list, "colMeans") )
 ## Time dependent plots of scores
 
 # Plot of daily scores (Poisson)
-filePath <- paste(fpath, "plot_pois_time.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_pois_time.pdf")
 plotScores(scores_pois, times, mnames, mcols, filePath, events = events, logscale = F) 
 
 # Plot of daily scores (Poisson, log)
-filePath <- paste(fpath, "plot_pois_time_log.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_pois_time_log.pdf")
 plotScores(scores_pois, times, mnames, mcols, filePath, events = events) 
 
 # Plot of daily scores (Quadratic)
-filePath <- paste(fpath, "plot_quad_time.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_quad_time.pdf")
 plotScores(scores_quad, times, mnames, mcols, filePath, events = events, logscale = F) 
 
 # Plot of daily scores (Quadratic)
-filePath <- paste(fpath, "plot_quad_time_log.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_quad_time_log.pdf")
 plotScores(scores_quad, times, mnames, mcols, filePath, events = events) 
 
 
 ## Plot of Murphy diagram
-filePath <- paste(fpath, "plot_Murphy_diag.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_Murphy_diag.pdf")
 plotElementary(Mphy_diag, grd, mnames, mcols, filePath, "score")
 
 
@@ -137,21 +137,21 @@ for (i in 1:(nmods+1)) {
 ## Time dependent plots of scores
 
 ## Poisson
-filePath <- paste(fpath, "plot_pois_time_agg.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_pois_time_agg.pdf")
 plotScores(scores_pois_agg, times, mnames, mcols, filePath, events = events, logscale = F) 
 
 ## Poisson (log scale)
-filePath <- paste(fpath, "plot_pois_time_agg_log.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_pois_time_agg_log.pdf")
 ## obsolete with next plotScores version
 scores_pois_agg2 <- pmax(scores_pois_agg, -2) + 3
 plotScores(scores_pois_agg2, times, mnames, mcols, filePath, events = events) 
 
 ## quadratic
-filePath <- paste(fpath, "plot_quad_time_agg.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_quad_time_agg.pdf")
 plotScores(scores_quad_agg, times, mnames, mcols, filePath, events = events, logscale = F) 
 
 ## quadratic (log scale)
-filePath <- paste(fpath, "plot_quad_time_agg_log.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_quad_time_agg_log.pdf")
 plotScores(scores_quad_agg, times, mnames, mcols, filePath, events = events) 
 
 ## Plot of Murphy diagrams
@@ -160,12 +160,12 @@ mnames2 <- c(mnames, "Clima")
 mnames3 <- c(mnames2, paste0("RC_", mnames2))
 
 ## Murphy diagram 1 (only aggregated forecasts)
-filePath <- paste(fpath, "plot_Murphy_diag_agg.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_Murphy_diag_agg.pdf")
 plotElementary(Mphy_diag_agg, grd, mnames2, mcols2, filePath, "score", whichmods = 1:5)
 
 
 ## Murphy diagram 2 (aggregated and recalibrated forecasts)
-filePath <- paste(fpath, "plot_Murphy_diag_agg_pav.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_Murphy_diag_agg_pav.pdf")
 plotElementary(cbind(Mphy_diag_agg, Mphy_diag_pav), grd, mnames3, c(mcols2, mcols2), filePath,
                "score", mltys = rep(1:2, ea = 5), whichmods = 1:10)
 
@@ -173,9 +173,9 @@ plotElementary(cbind(Mphy_diag_agg, Mphy_diag_pav), grd, mnames3, c(mcols2, mcol
 ## Plot of mean forecasts over time
 mean_models <- matrix(unlist(models_agg), ncol = 5)
 
-filePath <- paste(fpath, "plot_mean_forecasts.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_mean_forecasts.pdf")
 plotScores(mean_models, times, mnames2, mcols2, filePath, events = events, logscale = F)
 
-filePath <- paste(fpath, "plot_mean_forecasts_log.pdf", sep = "/")
+filePath <- file.path(fpath, "plot_mean_forecasts_log.pdf")
 plotScores(mean_models, times, mnames2, mcols2, filePath, events = events)
 

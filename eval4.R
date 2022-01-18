@@ -11,7 +11,7 @@ source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
 source('~/Documents/Code/Earthquakes_Italy/functions_prep.R')
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots_TEST"
+fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
 
 max_agg <- 10
 
@@ -39,26 +39,26 @@ for (k in 1:max_agg) {
   SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = nmods, nrow = ncells)
   ## Create maps for scores
   lims <- c(min( log(SCR_map) ), max( log(SCR_map) )) + 0.05 * c(-1,1)
-  filePath <- paste0(fpath, "/", "map_score_log_agg", k, ".pdf")
+  filePath <- file.path(fpath, paste0("map_score_log_agg", k, ".pdf"))
   mapComparison(SCR_map, pal, cells, lims, ncols, filePath, evts = events)
     ## Create maps for miscalibration
   lims[1] <- min( log(MCB_map) ) - 0.05
   lims[2] <- max( log(MCB_map) ) + 0.05
-  filePath <- paste0(fpath, "/", "map_MCB_log_agg", k, ".pdf")
+  filePath <- file.path(fpath, paste0("map_MCB_log_agg", k, ".pdf"))
   mapComparison(MCB_map, pal, cells, lims, ncols, filePath, evts = events)
   ## Create maps for discrimination
   offs <- 1e-5
   lims[1] <- log(offs)
   lims[2] <- max( log(DSC_map + offs)) + 0.1
-  filePath <- paste0(fpath, "/", "map_DSC_log_agg", k, ".pdf")
+  filePath <- file.path(fpath, paste0("map_DSC_log_agg", k, ".pdf"))
   mapComparison(DSC_map, pal, cells, lims, ncols, filePath, offset = offs)
   ## Create maps for score differences
-  rootName <- paste(fpath, "map_score_diff", sep = "/")
+  rootName <- "map_score_diff"
   pal <- c(0, 0.66)    # red and blue
   for (i in 1:4) {
     for (j in 1:4) {
       if (i >= j) next
-      filePath <- paste0(rootName, "_", i, j, "_agg", k, ".pdf")
+      filePath <- file.path(fpath, paste0(rootName, "_", i, j, "_agg", k, ".pdf"))
       mapDifferences(SCR_map[ ,i] - SCR_map[ ,j], pal, cells, filePath)
     }
   }
