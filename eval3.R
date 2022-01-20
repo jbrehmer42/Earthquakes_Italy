@@ -1,17 +1,19 @@
 ## Spatial plots of scores, calibration,
 ## discrimination, and skill over testing area
 
-# Do Data preparation
-source('~/Documents/Code/Earthquakes_Italy/data_prep.R')
-# source functions for scores
-source('~/Documents/Code/Earthquakes_Italy/functions_eval.R')
-# source functions for plotting
-source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
-# source functions for data preparation
-source('~/Documents/Code/Earthquakes_Italy/functions_prep.R')
-
 # Path for figures
 fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
+# Path for R code
+rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+
+# Do Data preparation
+source(file.path(rpath, "data_prep.R"))
+# source functions for scores
+source(file.path(rpath, "functions_eval.R"))
+# source functions for plotting
+source(file.path(rpath, "functions_plot.R"))
+# source functions for data preparation
+source(file.path(rpath, "functions_prep.R"))
 
 
 ## Compute values for maps

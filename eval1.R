@@ -1,25 +1,33 @@
 ## Model evaluation as in CSEP
 
-# Do Data preparation
-source('~/Documents/Code/Earthquakes_Italy/data_prep.R')
-# source functions for scores
-source('~/Documents/Code/Earthquakes_Italy/functions_eval.R')
-# source functions for plotting
-source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
-
-
 # Path for figures
 fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
+# Path for R code
+rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+
+# Do Data preparation
+source(file.path(rpath, "data_prep.R"))
+# source functions for scores
+source(file.path(rpath, "functions_eval.R"))
+# source functions for plotting
+source(file.path(rpath, "functions_plot.R"))
+
 
 ############################################
 #### Part I - Scores and Murphy diagram ####
 
+days0 <- days1 <- 1:ndays
+days0[(rowSums(obs) != 0)] <- NA
+days1[(rowSums(obs) == 0)] <- NA
 
 ## Calculate daily scores for quadratic and Poisson loss
-scores_pois <- scores_quad <- matrix(0, nrow = ndays, ncol = nmods)
+scores_pois <- scores_quad <- scores_spat <- scores_mass <- matrix(0, nrow = ndays, ncol = nmods)
 for (i in 1:nmods) {
   scores_pois[ ,i] <- rowSums( Spois(models[[i]], obs) )
   scores_quad[ ,i] <- rowSums( Squad(models[[i]], obs) )
+  scores_spat[ ,i] <- rowSums( Sspat(models[[i]], obs) ) + rowSums(obs) * log(rowSums(models[[i]]))
+  # scores_mass considers the fully aggregated forecasts and observations (see below)
+  scores_mass[ ,i] <- Spois( rowSums(models[[i]]), rowSums(obs) )
 }
 
 ## Mean scores for full testing period
@@ -53,24 +61,149 @@ tt <- Sys.time() - tt
 Mphy_diag <- t( sapply(Mphy_list, "colMeans") )
 
 
+## Time dependent plots of scores and score differences
 
-## Time dependent plots of scores
-
-# Plot of daily scores (Poisson)
+## Poisson Scores
 filePath <- file.path(fpath, "plot_pois_time.pdf")
-plotScores(scores_pois, times, mnames, mcols, filePath, events = events, logscale = F) 
+plotScores(scores_pois, times, mnames, mcols, filePath, events, type = "l")
 
-# Plot of daily scores (Poisson, log)
-filePath <- file.path(fpath, "plot_pois_time_log.pdf")
-plotScores(scores_pois, times, mnames, mcols, filePath, events = events) 
+filePath <- file.path(fpath, "plot_pois_time_h.pdf")
+plotScores(scores_pois, times, mnames, mcols, filePath, events, type = "h")
 
-# Plot of daily scores (Quadratic)
+filePath <- file.path(fpath, "plot_pois_time0.pdf")
+plotScores(scores_pois, times, mnames, mcols, filePath, events, type = "l", days = days0)
+
+filePath <- file.path(fpath, "plot_pois_time1.pdf")
+plotScores(scores_pois, times, mnames, mcols, filePath, events, type = "p", days = days1)
+
+filePath <- file.path(fpath, "plot_pois_time_zoom.pdf")
+plotScores(scores_pois, times, mnames, mcols, filePath, events, type = "p",
+           tlim = list(c(1,8,2016), c(31,5,2018)))
+
+
+## Poisson differences (to model 1)
+## Positive values indicate superior performance
+scorediffs <- as.matrix(scores_pois[ ,rep(1, nmods-1)] - scores_pois[ ,2:nmods])
+
+filePath <- file.path(fpath, "plot_pois_time_diff.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4)
+
+filePath <- file.path(fpath, "plot_pois_time_diff_trim.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-2,1))
+
+filePath <- file.path(fpath, "plot_pois_time_diff0.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-2,1), days = days0)
+
+filePath <- file.path(fpath, "plot_pois_time_diff1.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "p", whichmods = 2:4,
+               trim = c(-20,20), days = days1)
+
+filePath <- file.path(fpath, "plot_pois_time_diff_trim_zoom.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-20,10), tlim = list(c(1,8,2016), c(31,5,2018)))
+
+
+## Quadratic Scores
 filePath <- file.path(fpath, "plot_quad_time.pdf")
-plotScores(scores_quad, times, mnames, mcols, filePath, events = events, logscale = F) 
+plotScores(scores_quad, times, mnames, mcols, filePath, events, type = "l")
 
-# Plot of daily scores (Quadratic)
-filePath <- file.path(fpath, "plot_quad_time_log.pdf")
-plotScores(scores_quad, times, mnames, mcols, filePath, events = events) 
+filePath <- file.path(fpath, "plot_quad_time_h.pdf")
+plotScores(scores_quad, times, mnames, mcols, filePath, events, type = "h")
+
+filePath <- file.path(fpath, "plot_quad_time0.pdf")
+plotScores(scores_quad, times, mnames, mcols, filePath, events, type = "l", days = days0)
+
+filePath <- file.path(fpath, "plot_quad_time1.pdf")
+plotScores(scores_quad, times, mnames, mcols, filePath, events, type = "p", days = days1)
+
+filePath <- file.path(fpath, "plot_quad_time_zoom.pdf")
+plotScores(scores_quad, times, mnames, mcols, filePath, events, type = "p",
+           tlim = list(c(1,8,2016), c(31,5,2018)))
+
+
+## Quadratic differences (to model 1)
+## Positive values indicate superior performance
+scorediffs <- as.matrix(scores_quad[ ,rep(1, nmods-1)] - scores_quad[ ,2:nmods])
+
+filePath <- file.path(fpath, "plot_quad_time_diff.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4)
+
+filePath <- file.path(fpath, "plot_quad_time_diff_trim.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-0.1,0.1))
+
+filePath <- file.path(fpath, "plot_quad_time_diff0.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-0.1,0.1), days = days0)
+
+filePath <- file.path(fpath, "plot_quad_time_diff1.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "p", whichmods = 2:4,
+               trim = c(-1,0.7), days = days1)
+
+filePath <- file.path(fpath, "plot_quad_time_diff_trim_zoom.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-3,0.5), tlim = list(c(1,8,2016), c(31,5,2018)))
+
+
+## Spatial Poisson scores
+filePath <- file.path(fpath, "plot_spat_time1.pdf")
+plotScores(scores_spat, times, mnames, mcols, filePath, events, type = "p", days = days1)
+
+## Spatial Poisson differences (to model 1)
+scorediffs <- as.matrix(scores_spat[ ,rep(1, nmods-1)] - scores_spat[ ,2:nmods])
+
+filePath <- file.path(fpath, "plot_spat_time_diff_trim.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "p", whichmods = 2:4,
+               days = days1, trim = c(-20,10))
+
+filePath <- file.path(fpath, "plot_spat_time_diff_trim_zoom.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               days = days1, trim = c(-20,10), tlim = list(c(1,8,2016), c(31,5,2018)))
+
+
+## Mass Poisson scores
+filePath <- file.path(fpath, "plot_mass_time.pdf")
+plotScores(scores_mass, times, mnames, mcols, filePath, events, type = "l")
+
+filePath <- file.path(fpath, "plot_mass_time_h.pdf")
+plotScores(scores_mass, times, mnames, mcols, filePath, events, type = "h")
+
+filePath <- file.path(fpath, "plot_mass_time0.pdf")
+plotScores(scores_mass, times, mnames, mcols, filePath, events, type = "l", days = days0)
+
+filePath <- file.path(fpath, "plot_mass_time1.pdf")
+plotScores(scores_mass, times, mnames, mcols, filePath, events, type = "p", days = days1)
+
+filePath <- file.path(fpath, "plot_mass_time_zoom.pdf")
+plotScores(scores_mass, times, mnames, mcols, filePath, events, type = "p",
+           tlim = list(c(1,8,2016), c(31,5,2018)))
+
+
+## Mass Poisson differences (to model 1)
+## Positive values indicate superior performance
+scorediffs <- as.matrix(scores_mass[ ,rep(1, nmods-1)] - scores_mass[ ,2:nmods])
+
+filePath <- file.path(fpath, "plot_mass_time_diff.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4)
+
+filePath <- file.path(fpath, "plot_mass_time_diff_trim.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-2,1))
+
+filePath <- file.path(fpath, "plot_mass_time_diff0.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-2,1), days = days0)
+
+filePath <- file.path(fpath, "plot_mass_time_diff1.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "p", whichmods = 2:4,
+               trim = c(-20,20), days = days1)
+
+filePath <- file.path(fpath, "plot_mass_time_diff_trim_zoom.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-20,10), tlim = list(c(1,8,2016), c(31,5,2018)))
+
 
 
 ## Plot of Murphy diagram
@@ -134,25 +267,58 @@ for (i in 1:(nmods+1)) {
 }
 
 
-## Time dependent plots of scores
+## Time dependent plots of scores and score differences
+## (now fully aggregated)
 
 ## Poisson
 filePath <- file.path(fpath, "plot_pois_time_agg.pdf")
-plotScores(scores_pois_agg, times, mnames, mcols, filePath, events = events, logscale = F) 
+plotScores(scores_pois_agg, times, mnames, mcols, filePath, events)
 
-## Poisson (log scale)
-filePath <- file.path(fpath, "plot_pois_time_agg_log.pdf")
-## obsolete with next plotScores version
-scores_pois_agg2 <- pmax(scores_pois_agg, -2) + 3
-plotScores(scores_pois_agg2, times, mnames, mcols, filePath, events = events) 
+filePath <- file.path(fpath, "plot_pois_time_agg0.pdf")
+plotScores(scores_pois_agg, times, mnames, mcols, filePath, events, type = "l", days = days0)
+
+filePath <- file.path(fpath, "plot_pois_time_agg1.pdf")
+plotScores(scores_pois_agg, times, mnames, mcols, filePath, events, type = "p", days = days1)
+
+## Poisson differences (to model 1)
+## Positive values indicate superior performance
+scorediffs <- as.matrix(scores_pois_agg[ ,rep(1, nmods-1)] - scores_pois_agg[ ,2:nmods])
+
+filePath <- file.path(fpath, "plot_pois_time_agg_diff.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4)
+
+filePath <- file.path(fpath, "plot_pois_time_agg_diff_trim.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-2,1))
+
+filePath <- file.path(fpath, "plot_pois_time_agg_diff1.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "p", whichmods = 2:4,
+               trim = c(-20,20), days = days1)
 
 ## quadratic
 filePath <- file.path(fpath, "plot_quad_time_agg.pdf")
-plotScores(scores_quad_agg, times, mnames, mcols, filePath, events = events, logscale = F) 
+plotScores(scores_quad_agg, times, mnames, mcols, filePath, events, logscale = F) 
 
 ## quadratic (log scale)
 filePath <- file.path(fpath, "plot_quad_time_agg_log.pdf")
-plotScores(scores_quad_agg, times, mnames, mcols, filePath, events = events) 
+plotScores(scores_quad_agg, times, mnames, mcols, filePath, events)
+
+## Quadratic differences (to model 1)
+## Positive values indicate superior performance
+scorediffs <- as.matrix(scores_quad_agg[ ,rep(1, nmods-1)] - scores_quad_agg[ ,2:nmods])
+
+filePath <- file.path(fpath, "plot_quad_time_agg_diff.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4)
+
+filePath <- file.path(fpath, "plot_quad_time_agg_diff_trim.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", whichmods = 2:4,
+               trim = c(-0.1,0.1))
+
+filePath <- file.path(fpath, "plot_quad_time_agg_diff1.pdf")
+plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "p", whichmods = 2:4,
+               trim = c(-1,0.7), days = days1)
+
+
 
 ## Plot of Murphy diagrams
 mcols2 <- c(mcols, "magenta")
@@ -171,11 +337,12 @@ plotElementary(cbind(Mphy_diag_agg, Mphy_diag_pav), grd, mnames3, c(mcols2, mcol
 
 
 ## Plot of mean forecasts over time
+## Use plotScores function although this means that ylab is wrong
 mean_models <- matrix(unlist(models_agg), ncol = 5)
 
 filePath <- file.path(fpath, "plot_mean_forecasts.pdf")
-plotScores(mean_models, times, mnames2, mcols2, filePath, events = events, logscale = F)
+plotScores(mean_models, times, mnames2, mcols2, filePath, events, logscale = F)
 
 filePath <- file.path(fpath, "plot_mean_forecasts_log.pdf")
-plotScores(mean_models, times, mnames2, mcols2, filePath, events = events)
+plotScores(mean_models, times, mnames2, mcols2, filePath, events)
 

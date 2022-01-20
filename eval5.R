@@ -1,21 +1,24 @@
 ## Spatial plots of skill scores over testing area
 ## Now including spatial AGGREGATION
 
-# source functions for scores
-source('~/Documents/Code/Earthquakes_Italy/functions_eval.R')
-# source functions for plotting
-source('~/Documents/Code/Earthquakes_Italy/functions_plot.R')
-# source functions for data preparation
-source('~/Documents/Code/Earthquakes_Italy/functions_prep.R')
-
 # Path for figures
 fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
+# Path for R code
+rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+
+# source functions for scores
+source(file.path(rpath, "functions_eval.R"))
+# source functions for plotting
+source(file.path(rpath, "functions_plot.R"))
+# source functions for data preparation
+source(file.path(rpath, "functions_prep.R"))
+
 
 max_agg <- 8
 
 for (k in 1:max_agg) {
   # Do Data preparation
-  source('~/Documents/Code/Earthquakes_Italy/data_prep.R')
+  source(file.path(rpath, "data_prep.R"))
   ## Switch to reduced testing region
   subs <- region_intersect(clima, cells)
   # Subset climatology

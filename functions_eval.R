@@ -8,6 +8,9 @@ Spois <- function(x, y)  -y * log(x) + x
 # Quadratic scoring function
 Squad <- function(x,y) (y - x)^2
 
+# First component of the normalized spatial score
+Sspat <- function(x, y) -y * log(x)
+
 # Mean Poisson scoring function
 Spois2 <- function(x, y) {
   # This is the same as Spois but omitting
