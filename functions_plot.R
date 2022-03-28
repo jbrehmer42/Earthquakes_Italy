@@ -477,12 +477,11 @@ plotScoreDiffs <- function(scores, times, mnames, mcols, filePath, events = NULL
 }
 
 # Plot scores, MCB, etc. with respect to elementary scoring functions
-plotElementary <- function(vals, grd, mnames, mcols, filePath, ylab, mltys = NULL,
+plotElementary <- function(vals, grd, mnames, mcols, filePath, ylab, mltys = rep(1,4),
                            whichmods = 1:4) {
   ntheta <- length(grd)
   lgrd <- log(grd)
   nmods <- length(whichmods)
-  if (missing(mltys)) mltys <- rep(1, nmods)
   mnames <- mnames[whichmods]
   mcols <- mcols[whichmods]
   mltys <- mltys[whichmods]
