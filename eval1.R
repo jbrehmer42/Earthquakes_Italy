@@ -210,6 +210,12 @@ plotScoreDiffs(scorediffs, times, mnames, mcols, filePath, events, type = "l", w
 filePath <- file.path(fpath, "plot_Murphy_diag.pdf")
 plotElementary(Mphy_diag, grd, mnames, mcols, filePath, "score")
 
+## Plot of differences Murphy diagram
+Mphy_diag_diff <- Mphy_diag[ ,rep(1, nmods-1)] - Mphy_diag[ ,2:nmods]
+filePath <- file.path(fpath, "plot_Murphy_diag_diff.pdf")
+plotElementary(Mphy_diag_diff, grd, mnames, mcols, filePath, "score", whichmods = 2:nmods)
+
+
 
 ##############################################
 #### Part II - Fully aggregated forecasts ####
