@@ -8,6 +8,9 @@ Spois <- function(x, y)  -y * log(x) + x
 # Quadratic scoring function
 Squad <- function(x,y) (y - x)^2
 
+# Mean quadratic scoring function
+Squad2 <- function(x,y) mean( (y - x)^2 )
+
 # First component of the normalized spatial score
 Sspat <- function(x, y) -y * log(x)
 
@@ -67,15 +70,19 @@ bin_decomp <- function(model, obs, scf = NULL, theta = NULL) {
   if (missing(scf)) scf <- function(x,y) colMeans( Sthet_vec(x, y, theta) )
   # Loop over all columns (i.e. bins or models)
   for (i in 1:ncol) {
-    meanfc <- model[ ,i]
-    y <- obs[ ,i]
-    rec <- isoreg(meanfc, y)$yf
-    s <- scf(meanfc, y)
-    s_rc <- scf(rec, y[order(meanfc)])
-    s_mg <- scf(rep(mean(y), length(meanfc)), y)
-    MCB[ ,i] <- s - s_rc
-    DSC[ ,i] <- s_mg - s_rc
-    UNC[ ,i] <- s_mg
+    if (sum(obs[ ,i]) == 0) {
+      MCB[ ,i] <- scf(model[ ,i], obs[ ,i])
+    } else {
+      meanfc <- model[ ,i]
+      y <- obs[ ,i]
+      rec <- isoreg(meanfc, y)$yf
+      s <- scf(meanfc, y)
+      s_rc <- scf(rec, y[order(meanfc)])
+      s_mg <- scf(rep(mean(y), length(meanfc)), y)
+      MCB[ ,i] <- s - s_rc
+      DSC[ ,i] <- s_mg - s_rc
+      UNC[ ,i] <- s_mg
+    }
   }
   return(list(MCB = MCB, DSC = DSC, UNC = UNC))
 }

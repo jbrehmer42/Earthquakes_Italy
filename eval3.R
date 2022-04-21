@@ -18,13 +18,30 @@ source(file.path(rpath, "functions_prep.R"))
 
 ## Compute values for maps
 MCB_map <- DSC_map <- matrix(0, nrow = ncells, ncol = nmods)
+MCB_quad <- DSC_quad <- UNC_quad <- rep(0, nmods)
 for (i in 1:nmods) {
+  # Compute decomposition for maps
   decomp <- bin_decomp(models[[i]], obs, scf = Spois2)
   MCB_map[ ,i] <- decomp$MCB
   DSC_map[ ,i] <- decomp$DSC
+  # Compute decomposition for quadratic score (table or alternative maps)
+  decomp_quad <- bin_decomp(models[[i]], obs, scf = Squad2)
+  MCB_quad[i] <- sum(decomp_quad$MCB)
+  DSC_quad[i] <- sum(decomp_quad$DSC)
+  UNC_quad[i] <- sum(decomp_quad$UNC)
 }
 UNC_map <- decomp$UNC
 SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = nmods, nrow = ncells)
+
+## Print score decompositions
+# Poisson score
+(colSums(MCB_map))
+(colSums(DSC_map))
+(sum(UNC_map))
+# Quadratic score
+(MCB_quad)
+(DSC_quad)
+(UNC_quad)
 
 ## Do spatial plots
 # create color vector 
