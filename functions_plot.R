@@ -42,6 +42,8 @@ plotReliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = F
     #up2 <- n - low2
     # Resample residuals under assumption of iid residuals
     resamples <- sapply(1:n, function(z) x + sample(res, length(y)))
+    # use rounding for integer data 
+    resamples <- round(pmax(resamples, 0))
     yf_resamples <- apply(resamples, 2, function(z) isoreg(x, z)$yf )
     # sort resamples, include observed values, and correct bias (shift by mean residual)
     yf_resamples_sorted <- apply(cbind(yf, yf_resamples), 1, sort) - mean(res)
