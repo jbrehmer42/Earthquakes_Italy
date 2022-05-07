@@ -116,11 +116,11 @@ filterRegion <- function(events, cells) {
   # filtered out)
   n <- dim(events)[1]
   ind <- rep(0, n)
+  cell_ri <- cells$LON + 0.5 * size_LON
+  cell_le <- cells$LON - 0.5 * size_LON
+  cell_lo <- cells$LAT - 0.5 * size_LAT
+  cell_up <- cells$LAT + 0.5 * size_LAT
   for (i in 1:n) {
-    cell_ri <- cells$LON + 0.5 * size_LON
-    cell_le <- cells$LON - 0.5 * size_LON
-    cell_lo <- cells$LAT - 0.5 * size_LAT
-    cell_up <- cells$LAT + 0.5 * size_LAT
     isLON <- (cell_le < events$LON[i]) & (events$LON[i] <= cell_ri)
     isLAT <- (cell_lo < events$LAT[i]) & (events$LAT[i] <= cell_up)
     if (any(isLON & isLAT) ) {
