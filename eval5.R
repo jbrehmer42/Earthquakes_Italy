@@ -2,9 +2,9 @@
 ## Now including spatial AGGREGATION
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
-# Path for R code
-rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+fpath <- "/media/myData/Plots/"
+# Path for r scripts
+rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
 
 # source functions for scores
 source(file.path(rpath, "functions_eval.R"))
@@ -20,42 +20,45 @@ for (k in 1:max_agg) {
   # Do Data preparation
   source(file.path(rpath, "data_prep.R"))
   ## Switch to reduced testing region
-  subs <- region_intersect(clima, cells)
+  subset_index <- region_intersect(clima, cells)
   # Subset climatology
-  clima <- clima[subs$clima, ]
+  clima <- clima[subset_index$clima, ]
   # subset cells, observations, and models
-  cells <- cells[subs$model, ]
-  ncells <- dim(cells)[1]
-  obs <- obs[ ,subs$model]
-  for (i in 1:nmods) {
-    models[[i]] <- models[[i]][ ,subs$model]
+  cells <- cells[subset_index$model, ]
+  n_cells <- dim(cells)[1]
+  obs <- obs[ ,subset_index$model]
+  for (i in 1:n_mods) {
+    models[[i]] <- models[[i]][ ,subset_index$model]
     gc()
   }
   # subset events
-  events <- filterRegion(events, cells)
+  events <- filter_region(events, cells)
   # Add climatology as last model
-  models[[nmods+1]] <- matrix(clima$RATE, ncol = ncells, nrow = ndays, byrow = TRUE)
+  models[[n_mods+1]] <- matrix(clima$RATE, ncol = n_cells, nrow = n_days,
+                               byrow = TRUE)
   # compute neighbourhood matrix
-  nmat <- neigh_mat(cells, k)
+  neighbourhood_matrix <- neigh_mat(cells, k)
   # Aggregate forecast models and observations
-  for (i in 1:(nmods+1)) {
-    models[[i]] <- as.matrix( models[[i]] %*% nmat )
+  for (i in 1:(n_mods+1)) {
+    models[[i]] <- as.matrix( models[[i]] %*% neighbourhood_matrix )
     gc()
   }
-  obs_agg <- obs %*% nmat
+  obs_agg <- obs %*% neighbourhood_matrix
   # Compute average scores
-  SCR_map <- matrix(0, nrow = ncells, ncol = (nmods+1))
-  for (i in 1:(nmods+1)) SCR_map[ ,i] <- colMeans( Spois(models[[i]], obs) )
+  SCR_map <- matrix(0, nrow = n_cells, ncol = (n_mods+1))
+  for (i in 1:(n_mods+1)) SCR_map[ ,i] <- colMeans( S_pois(models[[i]], obs) )
   # Compute skills
-  SKL_map <- ( matrix(SCR_map[ ,nmods+1], ncol = nmods, nrow = ncells) - SCR_map[ ,1:nmods] ) / matrix(SCR_map[ ,nmods+1], ncol = nmods, nrow = ncells)
+  SKL_map <- ( matrix(SCR_map[ ,n_mods+1], ncol = n_mods, nrow = n_cells)
+               - SCR_map[ ,1:n_mods] ) / matrix(SCR_map[ ,n_mods+1],
+                                                ncol = n_mods, nrow = n_cells)
   # Plots
-  ncols <- 200
+  n_colors <- 200
   pal <- c(0.35, 0)
   lims <- c(-10, 1) 
-  filePath <- file.path(fpath, paste0("map_skill_score_agg", k, ".pdf"))
-  mapSkills(SKL_map, pal, cells, lims, ncols, filePath, evts = events)
+  file_path <- file.path(fpath, paste0("map_skill_score_agg", k, ".pdf"))
+  plot_skill_map(SKL_map, pal, cells, lims, n_colors, file_path, evts = events)
   if (k < max_agg) {
-    rm(models, nmat)
+    rm(models, neighbourhood_matrix)
     gc()
   }
 }

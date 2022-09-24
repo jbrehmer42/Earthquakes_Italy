@@ -2,9 +2,10 @@
 ## discrimination, and skill over testing area
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
-# Path for R code
-rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+fpath <- "/media/myData/Plots/"
+# Path for r scripts
+rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
+
 
 # Do Data preparation
 source(file.path(rpath, "data_prep.R"))
@@ -17,21 +18,21 @@ source(file.path(rpath, "functions_prep.R"))
 
 
 ## Compute values for maps
-MCB_map <- DSC_map <- matrix(0, nrow = ncells, ncol = nmods)
-MCB_quad <- DSC_quad <- UNC_quad <- rep(0, nmods)
-for (i in 1:nmods) {
+MCB_map <- DSC_map <- matrix(0, nrow = n_cells, ncol = n_mods)
+MCB_quad <- DSC_quad <- UNC_quad <- rep(0, n_mods)
+for (i in 1:n_mods) {
   # Compute decomposition for maps
-  decomp <- bin_decomp(models[[i]], obs, scf = Spois2)
+  decomp <- bin_decomposition(models[[i]], obs, scf = S_pois2)
   MCB_map[ ,i] <- decomp$MCB
   DSC_map[ ,i] <- decomp$DSC
   # Compute decomposition for quadratic score (table or alternative maps)
-  decomp_quad <- bin_decomp(models[[i]], obs, scf = Squad2)
+  decomp_quad <- bin_decomposition(models[[i]], obs, scf = S_quad2)
   MCB_quad[i] <- sum(decomp_quad$MCB)
   DSC_quad[i] <- sum(decomp_quad$DSC)
   UNC_quad[i] <- sum(decomp_quad$UNC)
 }
 UNC_map <- decomp$UNC
-SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = nmods, nrow = ncells)
+SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = n_mods, nrow = n_cells)
 
 ## Print score decompositions
 # Poisson score
@@ -44,37 +45,37 @@ SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = nmods, nrow = ncells)
 (UNC_quad)
 
 ## Do spatial plots
-# create color vector 
-ncols <- 200
-pal <- rev(heat.colors(ncols))
-#pal <- gray.colors(ncols)
+# create color vector from palette
+n_colors <- 200
+pal <- rev(heat.colors(n_colors))
+#pal <- gray.colors(n_colors)
 
 ## Create maps for scores
 lims <- c(min( log(SCR_map) ), max( log(SCR_map) )) + 0.05 * c(-1,1)
-filePath <- file.path(fpath, "map_score_log.pdf")
-mapComparison(SCR_map, pal, cells, lims, ncols, filePath, evts = events)
+file_path <- file.path(fpath, "map_score_log.pdf")
+plot_multi_map(SCR_map, pal, cells, lims, n_colors, file_path, evts = events)
 
 ## Create maps for MCB
 lims[1] <- min( log(MCB_map) ) - 0.05
 lims[2] <- max( log(MCB_map) ) + 0.05
-filePath <- file.path(fpath, "map_MCB_log.pdf")
-mapComparison(MCB_map, pal, cells, lims, ncols, filePath, evts = events)
+file_path <- file.path(fpath, "map_MCB_log.pdf")
+plot_multi_map(MCB_map, pal, cells, lims, n_colors, file_path, evts = events)
 
 ## Create maps for DSC
-offs <- 1e-5
-lims[1] <- log(offs)
-lims[2] <- max( log(DSC_map + offs)) + 0.1
-filePath <- file.path(fpath, "map_DSC_log.pdf")
-mapComparison(DSC_map, pal, cells, lims, ncols, filePath, offset = offs)
+offset <- 1e-5
+lims[1] <- log(offset)
+lims[2] <- max( log(DSC_map + offset)) + 0.1
+file_path <- file.path(fpath, "map_DSC_log.pdf")
+plot_multi_map(DSC_map, pal, cells, lims, n_colors, file_path, offset = offset)
 
 ## Create maps for score differences
-rootName <- "map_score_diff"
+root_name <- "map_score_diff"
 pal <- c(0, 0.66)    # red and blue
 for (i in 1:4) {
   for (j in 1:4) {
     if (i >= j) next
-    filePath <- file.path(fpath, paste0(rootName, "_", i, j, ".pdf"))
-    mapDifferences(SCR_map[ ,i] - SCR_map[ ,j], pal, cells, filePath)
+    file_path <- file.path(fpath, paste0(root_name, "_", i, j, ".pdf"))
+    plot_diffs_map(SCR_map[ ,i] - SCR_map[ ,j], pal, cells, file_path)
   }
 }
 
@@ -84,25 +85,28 @@ for (i in 1:4) {
 
 ## Include climatology: Have to switch
 ## to reduced testing region
-subs <- region_intersect(clima, cells)
+subset_index <- region_intersect(clima, cells)
 
 # subset forecast models and observations
-clima <- clima[subs$clima, ]
-cells <- cells[subs$model, ]
-ncells <- dim(cells)[1]
-obs <- obs[ ,subs$model]
+clima <- clima[subset_index$clima, ]
+cells <- cells[subset_index$model, ]
+n_cells <- dim(cells)[1]
+obs <- obs[ ,subset_index$model]
 # subset events
-events <- filterRegion(events, cells)
+events <- filter_region(events, cells)
 
 # Compute average scores for climatology
-scrClima <- colMeans( Spois(matrix(clima$RATE, ncol = ncells, nrow = ndays, byrow = TRUE), obs) )
+SCR_clima <- colMeans( S_pois(matrix(clima$RATE, ncol = n_cells, nrow = n_days,
+                                     byrow = TRUE), obs) )
+
 gc()
-SCR_map <- SCR_map[subs$model, ]
-SKL_map <- ( matrix(scrClima, ncol = nmods, nrow = ncells) - SCR_map ) / matrix(scrClima, ncol = nmods, nrow = ncells)
+SCR_map <- SCR_map[subset_index$model, ]
+SKL_map <- ( matrix(SCR_clima, ncol = n_mods, nrow = n_cells) - SCR_map ) /
+            matrix(SCR_clima, ncol = n_mods, nrow = n_cells)
 # Plots
 # Specify colours for positive and negative 
 # values (0.66 = blue, 0 = red, 0.35 = green)
 pal <- c(0.35, 0)
 lims <- c(-10, 1)
-filePath <- file.path(fpath, "map_skill_score.pdf")
-mapSkills(SKL_map, pal, cells, lims, ncols, filePath, evts = events)
+file_path <- file.path(fpath, "map_skill_score.pdf")
+plot_skill_map(SKL_map, pal, cells, lims, n_colors, file_path, evts = events)

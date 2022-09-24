@@ -4,9 +4,10 @@
 ## All maps are created as in eval3.R
 
 # Path for figures
-fpath <- "/home/jbrehmer/Documents/_temp/Case/Plots"
-# Path for R code
-rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+fpath <- "/media/myData/Plots/"
+# Path for r scripts
+rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
+
 
 # source functions for scores
 source(file.path(rpath, "functions_eval.R"))
@@ -23,45 +24,46 @@ for (k in 1:max_agg) {
   ncols <- 200
   pal <- rev(heat.colors(ncols))
   # compute neighbourhood matrix
-  nmat <- neigh_mat(cells, k)
+  neighbourhood_matrix <- neigh_mat(cells, k)
   # Aggregate forecast models and observations
-  for (i in 1:nmods) {
-    models[[i]] <- as.matrix( models[[i]] %*% nmat )
+  for (i in 1:n_mods) {
+    models[[i]] <- as.matrix( models[[i]] %*% neighbourhood_matrix )
     gc()
   }
-  obs_agg <- obs %*% nmat
+  obs_agg <- obs %*% neighbourhood_matrix
   ## Compute values for maps
-  MCB_map <- DSC_map <- matrix(0, nrow = ncells, ncol = nmods)
-  for (i in 1:nmods) {
-    decomp <- bin_decomp(models[[i]], obs_agg, scf = Spois2)
+  MCB_map <- DSC_map <- matrix(0, nrow = n_cells, ncol = n_mods)
+  for (i in 1:n_mods) {
+    decomp <- bin_decomposition(models[[i]], obs_agg, scf = S_pois2)
     MCB_map[ ,i] <- decomp$MCB
     DSC_map[ ,i] <- decomp$DSC
   }
   UNC_map <- decomp$UNC
-  SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = nmods, nrow = ncells)
+  SCR_map <- MCB_map - DSC_map + matrix(UNC_map, ncol = n_mods, nrow = n_cells)
   ## Create maps for scores
   lims <- c(min( log(SCR_map) ), max( log(SCR_map) )) + 0.05 * c(-1,1)
-  filePath <- file.path(fpath, paste0("map_score_log_agg", k, ".pdf"))
-  mapComparison(SCR_map, pal, cells, lims, ncols, filePath, evts = events)
-    ## Create maps for miscalibration
+  file_path <- file.path(fpath, paste0("map_score_log_agg", k, ".pdf"))
+  plot_multi_map(SCR_map, pal, cells, lims, ncols, file_path, evts = events)
+  ## Create maps for miscalibration
   lims[1] <- min( log(MCB_map) ) - 0.05
   lims[2] <- max( log(MCB_map) ) + 0.05
-  filePath <- file.path(fpath, paste0("map_MCB_log_agg", k, ".pdf"))
-  mapComparison(MCB_map, pal, cells, lims, ncols, filePath, evts = events)
+  file_path <- file.path(fpath, paste0("map_MCB_log_agg", k, ".pdf"))
+  plot_multi_map(MCB_map, pal, cells, lims, ncols, file_path, evts = events)
   ## Create maps for discrimination
-  offs <- 1e-5
-  lims[1] <- log(offs)
-  lims[2] <- max( log(DSC_map + offs)) + 0.1
-  filePath <- file.path(fpath, paste0("map_DSC_log_agg", k, ".pdf"))
-  mapComparison(DSC_map, pal, cells, lims, ncols, filePath, offset = offs)
+  offset <- 1e-5
+  lims[1] <- log(offset)
+  lims[2] <- max( log(DSC_map + offset)) + 0.1
+  file_path <- file.path(fpath, paste0("map_DSC_log_agg", k, ".pdf"))
+  plot_multi_map(DSC_map, pal, cells, lims, ncols, file_path, offset = offset)
   ## Create maps for score differences
-  rootName <- "map_score_diff"
+  root_name <- "map_score_diff"
   pal <- c(0, 0.66)    # red and blue
   for (i in 1:4) {
     for (j in 1:4) {
       if (i >= j) next
-      filePath <- file.path(fpath, paste0(rootName, "_", i, j, "_agg", k, ".pdf"))
-      mapDifferences(SCR_map[ ,i] - SCR_map[ ,j], pal, cells, filePath)
+      file_path <- file.path(fpath,
+                             paste0(root_name, "_", i, j, "_agg", k, ".pdf"))
+      plot_diffs_map(SCR_map[ ,i] - SCR_map[ ,j], pal, cells, file_path)
     }
   }
   # Clear whole workspace
@@ -71,14 +73,4 @@ for (k in 1:max_agg) {
   }
 }
 
-# filePath <- "~/Documents/_temp/Case/Plots/plot_pois_k.pdf"
-# pdf(filePath, width = 8, height=6)
-# ylim <- c(min(scores_pois_k), max(scores_pois_k))
-# m <- dim(scores_pois_k)[1]
-# plot(0:(m-1), scores_pois_k[ ,1], ty = "l", xlab = "k", ylim = ylim,
-#      ylab = "score", main = "Scaled logarithmic scores for aggregated forecasts")
-# for (i in 2:4) lines(0:(m-1), scores_pois_k[ ,i], col = cols[i]) 
-# for (i in 1:4) points(0:(m-1), scores_pois_k[ ,i], col = cols[i], pch = 20)
-# legend(8.2, 0.645, mnames, col = cols, lwd = 2)
-# dev.off()
 
