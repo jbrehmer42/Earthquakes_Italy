@@ -22,11 +22,11 @@ MCB_map <- DSC_map <- matrix(0, nrow = n_cells, ncol = n_mods)
 MCB_quad <- DSC_quad <- UNC_quad <- rep(0, n_mods)
 for (i in 1:n_mods) {
   # Compute decomposition for maps
-  decomp <- bin_decomposition(models[[i]], obs, scf = S_pois2)
+  decomp <- cell_decomposition(models[[i]], obs, scf = S_pois2)
   MCB_map[ ,i] <- decomp$MCB
   DSC_map[ ,i] <- decomp$DSC
   # Compute decomposition for quadratic score (table or alternative maps)
-  decomp_quad <- bin_decomposition(models[[i]], obs, scf = S_quad2)
+  decomp_quad <- cell_decomposition(models[[i]], obs, scf = S_quad2)
   MCB_quad[i] <- sum(decomp_quad$MCB)
   DSC_quad[i] <- sum(decomp_quad$DSC)
   UNC_quad[i] <- sum(decomp_quad$UNC)

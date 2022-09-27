@@ -4,11 +4,18 @@
 # Load package for maps
 library(maps)
 
-# Compute time index (i.e. data row) from given date
+
 get_time_index <- function(DD, MM, YY, times) {
-  matchday <- (times$DD == DD) & (times$MM == MM) & (times$YY == YY) 
-  if (any(matchday)) {
-    time_index <- which(matchday)
+  # Compute time index (i.e. data row) from given date
+  #
+  # Input values:
+  # DD     -  day of date as integer
+  # MM     -  month of date as integer
+  # YY     -  year of date as integer
+  # times  -  time stamps of the model outputs
+  match_day <- (times$DD == DD) & (times$MM == MM) & (times$YY == YY) 
+  if (any(match_day)) {
+    time_index <- which(match_day)
   } else {
     time_index <- NA
   }
@@ -16,13 +23,23 @@ get_time_index <- function(DD, MM, YY, times) {
 }
 
 
-# function to create a reliability diagram
+
 plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = F, resamp = NULL) {
+  # Create a mean reliability diagram
+  #
+  # Input values:
+  # aggr    - forecast vector
+  # y       - observation vector
+  # txt     - title for the diagram
+  # col     - color of the isotonic regression curve
+  # lim     - limits for both axes
+  # ln      - using log to transform both axes
+  # resamp  - number of samples if resampling should be done
   # Plots a mean reliability diagram similar
-  # to the one in Gneiting and Resin (2021)
+  # to the one in Gneiting and Resin (2021).
   # Resampling is done, but this is not as
   # straightforward, since all forecasts have
-  # to be nonnegative!
+  # to be nonnegative.
   yf <- isoreg(aggr, y)$yf
   x <- sort(aggr)
   # calculate decomposition
@@ -105,8 +122,19 @@ plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = 
 
 
 plot_map <- function(color_vals, cells, main = "", evts = NULL, borders = T) {
-  # Description needed here
-  # 
+  # Plot map with colored cells
+  #
+  # Input values:
+  # color_vals  - color values for the cells given by cells
+  # cells       - data frame with longitudes and latitudes of the cells
+  #               which should be colored
+  # main        - title for the map
+  # evts        - data frame of events. Added to the plot as small 
+  #               diamonds (optional)
+  # borders     - whether to add state borders to the map
+  # This function can be used to illustrate the spatial behavior of 
+  # different forecasts, e.g. calibration. The values for each cell
+  # have to be transformed to color values first.
   border_col <- rgb(0, 0, 0, alpha = 0.4)
   xlim <- c(min(cells$LON), max(cells$LON))
   ylim <- c(min(cells$LAT), max(cells$LAT))
@@ -123,7 +151,26 @@ plot_map <- function(color_vals, cells, main = "", evts = NULL, borders = T) {
 }
 
 
-plot_multi_map <- function(vals, pal, cells, lims, n_colors, file_path, offset = 0, evts = NULL) {
+plot_multi_map <- function(vals, pal, cells, lims, n_colors, file_path,
+                           offset = 0, evts = NULL) {
+  # Plot maps for four models in one graph
+  # 
+  # Input values:
+  # vals       -  values which are transformed to colors
+  # pal        -  collection of colors to use for the maps
+  # cells      -  data frame with longitudes and latitudes of the
+  #               cells which should be colored
+  # lims       -  limits to cut off very large or small values
+  # n_colors   -  number of colors to use for mapping the values
+  #               to a color scale (has to be length(pal), obsolete)
+  # file_path  -  name of .pdf file where the graph is saved
+  # offset     -  small number to shift the values such that log
+  #               does not attain extremely negative values
+  # evts       -  data frame of events. Added to the plots as small 
+  #               diamonds (optional)
+  # Uses plot_map to plot the values given by vals (e.g.
+  # calibration) in color on four different maps. Adds a color
+  # bar on the right to indicate large and small values.
   y_len <- n_colors/10
   n_ticks <- 7
   n_mods <- dim(vals)[2]
@@ -153,9 +200,26 @@ plot_multi_map <- function(vals, pal, cells, lims, n_colors, file_path, offset =
 }
 
 
-## Create four maps for the skill score
-## use truncation for negative values
-plot_skill_map <- function(vals, pal, cells, lims, n_colors, file_path, evts = NULL) {
+plot_skill_map <- function(vals, pal, cells, lims, n_colors, file_path,
+                           evts = NULL) {
+  # Plot skill maps for four models in one graph.
+  # Similar to plot_multi_map, but with different treatment of
+  # values and colors and an asymmetric color bar.
+  #
+  # Input values:
+  # vals       -  skill values which are transformed to colors
+  # pal        -  collection of colors to use for the maps
+  # cells      -  data frame with longitudes and latitudes of the
+  #               cells which should be colored
+  # lims       -  limits to cut off very large or small values
+  # n_colors   -  number of colors to use for mapping the values
+  #               to a color scale (has to be length(pal), obsolete)
+  # file_path  -  name of .pdf file where the graph is saved
+  # evts       -  data frame of events. Added to the plots as small 
+  #               diamonds (optional)
+  # Uses plot_map to plot the skill valueson four different maps.
+  # Adds a color bar on the right to indicate positive and negative
+  # values.
   n_mods <- dim(vals)[2]
   n_cells <- dim(cells)[1]
   pdf(file_path, width = 8, height = 7)
@@ -165,6 +229,8 @@ plot_skill_map <- function(vals, pal, cells, lims, n_colors, file_path, evts = N
   par(mar = c(2/3,2/3,1.5,1/3))
   for (i in 1:n_mods) {
     skills <- pmax(vals[ ,i], lims[1])
+    # Use different scaling and colors for positive and negative
+    # values because skills are in (-\infty , 1]
     scaled_vals_pos <-  skills[skills >= 0]
     scaled_vals_neg <-  - (skills[skills < 0] - lims[1]) / lims[1]
     color_scale <- rep("", n_cells)
@@ -203,21 +269,22 @@ plot_skill_map <- function(vals, pal, cells, lims, n_colors, file_path, evts = N
   dev.off()
 }
 
-# Plot a map of score differences by individually
-# coloring the grid cells
-plot_diffs_map <- function(vals, pal, cells, file_path, evts = NULL, borders = T, main = "") {
+
+plot_diffs_map <- function(vals, pal, cells, file_path, evts = NULL,
+                           borders = T, main = "") {
+  # Plot map with colored cells and color bar on the right.
+  # Like plot_map, but designed to illustrate value differences.
+  #
   # Input values:
-  # vals     - Numeric values corresponding to
-  #            the grid cells
-  # pal      - colors for positive and negative
-  #            values specified via parameter
-  #            'hue' in hsv colors
-  # cells    - Data frame of grid cells
-  # file_path - File path for .pdf file
-  # evts     - Data frame of events (optional)
-  # borders  - Plot national borders? Requires 
-  #            R-package "maps"
-  # main     - Caption for plot (optional)
+  # vals       -  values which are transformed to colors
+  # pal        -  collection of colors to use for the maps
+  # cells      -  data frame with longitudes and latitudes of the
+  #               cells which should be colored
+  # file_path  -  name of .pdf file where the graph is saved
+  # evts       -  data frame of events. Added to the plots as small 
+  #               diamonds (optional)
+  # borders    -  whether to add state borders to the map
+  # main       -  title of the graph
   # Set graphical paramters e.g. colors
   y_len <- 5
   n_ticks <- 7
@@ -260,10 +327,34 @@ plot_diffs_map <- function(vals, pal, cells, file_path, evts = NULL, borders = T
 }
 
 
-# Plot daily scores of the models
+
 plot_scores <- function(scores, times, model_names, model_colors, file_path,
                         events = NULL, logscale = T, type = "l", days = NULL,
                         ylim = NULL, tlim = NULL, whichmods = 1:4) {
+  # Plot daily scores of the forecast models
+  #
+  # Input values:
+  # scores        -  list of scores (or other values) of the models
+  # times         -  time stamps of the model forecasts
+  # model_names   -  names of the models, depicted in the legend
+  # model_colors  -  colors of the lines/points of the models
+  # file_path     -  name of .pdf file where the graph is saved
+  # events        -  data frame of events. Added to the plot as small
+  #                  circles below the time axis (optional)
+  # logscale      -  Whether to transform the y axis with log
+  # type          -  How to plot the score values. Possible are:
+  #                   "l" for lines
+  #                   "p" for points
+  #                   "h" for vertical bars
+  # days          -  Increasing vector of integers for which to plot
+  #                  the values. Set a position to NA to omit the 
+  #                  value on this day (optional)
+  # ylim          -  limits for the y axis (optional)
+  # tlim          -  limits for the time axis (optional)
+  # whichmods     -  indices of model forecasts in scores. E.g. if
+  #                  only model 1 and 3 are given, set to c(1, 3)
+  # Allows for a lot of (maybe too much) customization of the plot of
+  # realized scores, but is not 'finished'.
   # Check arguments
   if (hasArg(tlim)) {
     t_start <- get_time_index(tlim[[1]][1], tlim[[1]][2], tlim[[1]][3], times)
@@ -380,11 +471,33 @@ plot_scores <- function(scores, times, model_names, model_colors, file_path,
   dev.off()
 }
 
-# Plot daily score differences of the models
+
 plot_score_diffs <- function(scores, times, model_names, model_colors,
                              file_path, events = NULL, type = "l", days = NULL,
                              ylim = NULL, trim = NULL, tlim = NULL,
                              whichmods = 1:4) {
+  # Plot daily score differences of the forecast models
+  # Very similar to plot_scores
+  #
+  # Input values:
+  # scores        -  list of score differences of the models
+  # times         -  time stamps of the model forecasts
+  # model_names   -  names of the models, depicted in the legend
+  # model_colors  -  colors of the lines/points of the models
+  # file_path     -  name of .pdf file where the graph is saved
+  # events        -  data frame of events. Added to the plot as small
+  #                  circles below the time axis (optional)
+  # type          -  How to plot the score differences Possible are:
+  #                   "l" for lines
+  #                   "p" for points
+  # days          -  Increasing vector of integers for which to plot
+  #                  the values. Set a position to NA to omit the 
+  #                  value on this day (optional)
+  # ylim          -  limits for the y axis (optional)
+  # trim          -  limits to truncate the score differences (optional)
+  # tlim          -  limits for the time axis (optional)
+  # whichmods     -  indices of model forecasts in scores. E.g. if
+  #                  only model 1 and 3 are given, set to c(1, 3)
   # Check arguments
   if (hasArg(tlim)) {
     t_start <- get_time_index(tlim[[1]][1], tlim[[1]][2], tlim[[1]][3], times)
@@ -479,11 +592,24 @@ plot_score_diffs <- function(scores, times, model_names, model_colors,
   dev.off()
 }
 
-# Plot scores, MCB, etc. with respect to elementary scoring functions
+
 plot_elementary_scores <- function(vals, grd, model_names, model_colors,
                                    file_path, ylab,
                                    model_ltys = rep(1, max(whichmods)),
                                    whichmods = 1:4) {
+  # Plot elemenatry scores, MCB etc. for each theta
+  #
+  # Input values:
+  # vals          -  list of values of the models
+  # grd           -  grid of theta values for which values are
+  #                  given
+  # model_names   -  names of the models, depicted in the legend
+  # model_colors  -  colors of the lines of the models
+  # file_path     -  name of .pdf file where the graph is saved
+  # ylab          -  title for y axis
+  # model_ltys    -  line types of the models (optional)
+  # whichmods     -  indices of model forecasts in scores. E.g. if
+  #                  only model 1 and 3 are given, set to c(1, 3)
   n_theta <- length(grd)
   log_grid <- log(grd)
   n_mods <- length(whichmods)

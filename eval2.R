@@ -22,7 +22,7 @@ log_grid <- seq(-25, 1, len = n_theta)
 grd <- exp(log_grid)
 MCB_diag <- DSC_diag <- matrix(0, ncol = n_mods, nrow = n_theta)
 for (i in 1:n_mods) {
-  decomp <- bin_decomposition(models[[i]], obs, theta = grd)
+  decomp <- cell_decomposition(models[[i]], obs, theta = grd)
   MCB_diag[ ,i] <- rowSums( decomp$MCB )
   DSC_diag[ ,i] <- rowSums( decomp$DSC )
 }
@@ -68,7 +68,7 @@ log_grid <- seq(-6, 2, len = n_theta)
 grd <- exp(log_grid)
 MCB_diag_agg <- DSC_diag_agg <- matrix(0, ncol = n_mods, nrow = n_theta)
 for (i in 1:n_mods) {
-  decomp <- bin_decomposition(models_agg[[i]], obs_agg, theta = grd)
+  decomp <- cell_decomposition(models_agg[[i]], obs_agg, theta = grd)
   MCB_diag_agg[ ,i] <- decomp$MCB
   DSC_diag_agg[ ,i] <- decomp$DSC
 }

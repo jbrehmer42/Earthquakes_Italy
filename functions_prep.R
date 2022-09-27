@@ -2,11 +2,13 @@
 ## Auxiliary functions - Data preparation ##
 
 
-# Load time stamps of the model outputs
+
 load_times <- function(file_path, last_day) {
+  # Load time stamps of the model outputs
+  #
   # Input values:
-  # file_path - File path for the time stamps file
-  # last_day  - Last day for which forecasts can be
+  # file_path  - File path for the time stamps file
+  # last_day   - Last day for which forecasts can be
   #            evaluated.
   # Read time stamps from file
   times <- read.table(file_path, col.names = c("DD", "MM", "YY", "H", "M", "S"))
@@ -31,13 +33,15 @@ load_times <- function(file_path, last_day) {
   return(list(times = times, time_index = time_index))
 }
 
-# Load forecast values of the models
+
 load_models <- function(file_paths, time_index) {
+  # Load forecast values of the models
+  #
   # Input values:
-  # file_paths - File paths for the model outputs
-  # time_index    - Index of model runs (rows) to be used
+  # file_paths   - File paths for the model outputs
+  # time_index   - Index of model runs (rows) to be used
   # Assume that the file time_index applies to all
-  # forecast model files
+  # forecast model files.
   # Read forecast values from files
   n_mods <- length(file_paths)
   models <- list()
@@ -54,10 +58,12 @@ load_models <- function(file_paths, time_index) {
 }
 
 
-# Load grid cells (testing region)
+
 load_cells <- function(file_path) {
+  # Load grid cell information (specifies the testing region)
+  #
   # Input values:
-  # file_path - File path for the grid cells file
+  # file_path  -  File path for the grid cells file
   # Read grid cell file
   cells <- read.csv(file_path, header = F, col.names = c("LON", "LAT", "N"))
   # Start numbering the grid cells with 1 (just for
@@ -72,8 +78,10 @@ load_cells <- function(file_path) {
 }
 
 
-# Load events data.frame
+
 load_events <- function(file_path, times) {
+  # Load catalog/events data frame
+  #
   # Input values:
   # file_path - File path for the events file
   # times     - Time stamps of testing period
@@ -104,10 +112,11 @@ load_events <- function(file_path, times) {
 }
 
 
-# Filter out events which do not fall into the 
-# testing region. Assign a grid cell number to
-# the remaining events
 filter_region <- function(events, cells) {
+  # Filter out events which do not fall into the 
+  # testing region. Assign a grid cell number to
+  # the remaining events
+  #
   # Input values:
   # events - Data frame of observed events
   # cells  - Data frame of grid cells
@@ -143,17 +152,17 @@ filter_region <- function(events, cells) {
 }
 
 
-# Create an observation matrix from the events
-# data frame
 observation_matrix <- function(events, n_days, n_cells) {
+  # Create an observation matrix from the events
+  # data frame
+  #
   # Input values:
-  # events - Data frame of observed events
-  # n_days  - Number of days in testing period
-  # n_cells - Number of cells in testing region
+  # events   - Data frame of observed events
+  # n_days   - Number of days in testing period
+  # n_cells  - Number of cells in testing region
   # Create an observation matrix which can be directly
-  # compared to the forecast model output matrices
-  # Rows are days
-  # Columns are grid cells
+  # compared to the forecast model output matrices.
+  # Rows are days, columns are grid cells.
   obs <- Matrix(0, ncol = n_cells, nrow = n_days, sparse = T)
   for (i in 1:n_days) {
     # Collect events in a 7-day period

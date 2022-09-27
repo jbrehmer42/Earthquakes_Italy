@@ -21,8 +21,8 @@ max_agg <- 10
 for (k in 1:max_agg) {
   # Do Data preparation
   source(file.path(rpath, "data_prep.R"))
-  ncols <- 200
-  pal <- rev(heat.colors(ncols))
+  n_colors <- 200
+  pal <- rev(heat.colors(n_colors))
   # compute neighbourhood matrix
   neighbourhood_matrix <- neigh_mat(cells, k)
   # Aggregate forecast models and observations
@@ -34,7 +34,7 @@ for (k in 1:max_agg) {
   ## Compute values for maps
   MCB_map <- DSC_map <- matrix(0, nrow = n_cells, ncol = n_mods)
   for (i in 1:n_mods) {
-    decomp <- bin_decomposition(models[[i]], obs_agg, scf = S_pois2)
+    decomp <- cell_decomposition(models[[i]], obs_agg, scf = S_pois2)
     MCB_map[ ,i] <- decomp$MCB
     DSC_map[ ,i] <- decomp$DSC
   }
@@ -43,18 +43,18 @@ for (k in 1:max_agg) {
   ## Create maps for scores
   lims <- c(min( log(SCR_map) ), max( log(SCR_map) )) + 0.05 * c(-1,1)
   file_path <- file.path(fpath, paste0("map_score_log_agg", k, ".pdf"))
-  plot_multi_map(SCR_map, pal, cells, lims, ncols, file_path, evts = events)
+  plot_multi_map(SCR_map, pal, cells, lims, n_colors, file_path, evts = events)
   ## Create maps for miscalibration
   lims[1] <- min( log(MCB_map) ) - 0.05
   lims[2] <- max( log(MCB_map) ) + 0.05
   file_path <- file.path(fpath, paste0("map_MCB_log_agg", k, ".pdf"))
-  plot_multi_map(MCB_map, pal, cells, lims, ncols, file_path, evts = events)
+  plot_multi_map(MCB_map, pal, cells, lims, n_colors, file_path, evts = events)
   ## Create maps for discrimination
   offset <- 1e-5
   lims[1] <- log(offset)
   lims[2] <- max( log(DSC_map + offset)) + 0.1
   file_path <- file.path(fpath, paste0("map_DSC_log_agg", k, ".pdf"))
-  plot_multi_map(DSC_map, pal, cells, lims, ncols, file_path, offset = offset)
+  plot_multi_map(DSC_map, pal, cells, lims, n_colors, file_path, offset = offset)
   ## Create maps for score differences
   root_name <- "map_score_diff"
   pal <- c(0, 0.66)    # red and blue
