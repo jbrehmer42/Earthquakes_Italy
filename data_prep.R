@@ -3,26 +3,28 @@
 
 
 # Path for r scripts
-rpath <- "/home/jbrehmer/Documents/Code/Earthquakes_Italy"
+rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
 
 # Path for data
 # The files containing the forecasts and observations should
 # be located in this folder
-dpath <- "/home/jbrehmer/EQData"
+dpath <- "/media/myData/EQData"
 
 # Set file names (default names)
 # The forecast model outputs are arrays with time in rows
 # and grid cells in the columns
-modelNames <- c("ETAS_LM.txt.xz", "ETES_FMC.txt.xz",
-                "STEP_LG.txt.xz", "Bayesian_corr_27_10.txt.xz")
+model_files <- c("ETAS_LM.txt.xz",
+                 "ETES_FMC.txt.xz",
+                 "STEP_LG.txt.xz",
+                 "Bayesian_corr_27_10.txt.xz")
 # Time stamps corresponding to model outputs
 # (rows of the model output data)
-timestampName <- "meta_rows.txt"
+time_stamps_file <- "meta_rows.txt"
 # Locations of grid cells corresponding to model outputs
 # (columns of the model output data)
-cellName <- "meta_column.csv"
+cell_file <- "meta_column.csv"
 # Catalog of observed earthquakes
-eventsName <- "meta_catalogo.txt"
+events_file <- "meta_catalogo.txt"
 
 # Load necessary packages
 library(Matrix)
@@ -31,53 +33,58 @@ library(Matrix)
 source(file.path(rpath, "functions_prep.R"))
 
 # Set model names and their colors
-mnames <- c("LM", "FMC", "LG", "SMA")
-mcols <- c("black", "darkgreen", "blue", "red")
+model_names <- c("LM", "FMC", "LG", "SMA")
+model_colors <- c("black", "darkgreen", "blue", "red")
 # Define last day where model evaluation is possible (needed
 # because we treat 7-day periods)
-lastday <- list(DD = 20, MM = 5, YY = 2020)
+last_day <- list(DD = 20, MM = 5, YY = 2020)
 
 
 ###############
 ## Load data ##
 
 # Load time stamps for the models
-filePath <- file.path(dpath, timestampName)
-res <- load_times(filePath, lastday)
+file_path <- file.path(dpath, time_stamps_file)
+res <- load_times(file_path, last_day)
 times <- res$times
 
 # Load list of model forecasts
-filePaths <- file.path(dpath, modelNames)
-models <- load_models(filePaths, res$tindex)
-nmods <- length(models)
+file_paths <- file.path(dpath, model_files)
+models <- load_models(file_paths, res$time_index)
+n_mods <- length(models)
 
 # Load the grid cell data (testing region)
-filePath <- file.path(dpath, cellName)
-cells <- load_cells(filePath)
+file_path <- file.path(dpath, cell_file)
+cells <- load_cells(file_path)
 
 # Load data frame of M4+ events
-filePath <- file.path(dpath, eventsName)
-events <- load_events(filePath, times)
+file_path <- file.path(dpath, events_file)
+events <- load_events(file_path, times)
 
 # Filter the M4+ events for testing region
-events <- filterRegion(events, cells)
+events <- filter_region(events, cells)
 
 # Convert events data frame to observation matrix of the
 # same format as the forecast matrices in models. Thus 
 # any scoring function S can be applied to the components
 # of these matrices. For example S( models[[i]], obs )
 # gives a matrix of scores for all grid cells and days
-ncells <- dim(cells)[1]
-ndays <- dim(times)[1]
-obs <- events2obs(events, ndays, ncells)
+n_cells <- dim(cells)[1]
+n_days <- dim(times)[1]
+obs <- observation_matrix(events, n_days, n_cells)
 
 # Load climatological model (constant in time)
-cfile <- file.path(dpath, "rate_clima.txt")
-clima <- read.table(cfile, header = F, col.names = c("LON", "LAT", "RATE"))
-#evts_per7 <- 25.95 * 7/365      # See Mail by Warner (08.09.21)
-evts_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
-#evts_per7 <- 16.97 * 7/365      # See events per year (calculated)
-clima$RATE <- clima$RATE * evts_per7
+clima_file <- file.path(dpath, "rate_clima.txt")
+clima <- read.table(clima_file, header = F, col.names = c("LON", "LAT", "RATE"))
+
+# The climatology file contains only normalized rates, i.e. spatial
+# distribution of events. We have to multiply it by the value of events
+# per time period. Different choices (depending on how we include after
+# shocks) are possible
+#events_per7 <- 25.95 * 7/365      # See Mail by Warner (08.09.21)
+events_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
+#events_per7 <- 16.97 * 7/365      # Events per year (calculated from events file)
+clima$RATE <- clima$RATE * events_per7
 
 ## Clean up
-rm(filePath, cfile)
+rm(file_path, clima_file)
