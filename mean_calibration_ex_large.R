@@ -22,6 +22,7 @@ subset_index <- rep(TRUE, n_days)
 for (i in 1:length(time_index_large)) {
   subset_index[(time_index_large[i]-6):time_index_large[i]] <- FALSE
 }
+# Number of omitted events
 n_days - sum(subset_index)
 
 ## Exclude large earthquakes (second variant)
@@ -30,6 +31,7 @@ time_index_large <- events$TI[events$MAG > Mlimit]
 time_index_large <- unique(time_index_large)
 subset_index <- rep(TRUE, n_days)
 subset_index[c(time_index_large+1, time_index_large + 2)] <- FALSE
+# Number of omitted events
 n_days - sum(subset_index)
 
 ## Aggregate mean forecasts
@@ -66,27 +68,6 @@ for (i in 1:n_mods) {
 }
 dev.off()
 
-# Reliability diagram
-file_path <- file.path(fpath, "mean_reldiag_new.pdf")
-lim1 <- c(0, 6)
-pdf(file_path, width = 7.5, height = 8)
-par(mfrow = c(2,2), mar = c(3.6, 3, 2.2, 0.3))
-for (i in 1:n_mods) {
-  plot_reliability(models_agg[[i]], obs_agg, model_names[i], model_colors[i],
-                   lim = lim1, resamp = T, MCB_decomp = T)
-}
-dev.off()
-
-# Reliability diagram on log scale
-file_path <- file.path(fpath, "mean_reldiag_new_log.pdf")
-lim2 <- c(0.05, lim1[2])
-pdf(file_path, width = 7.5, height = 8)
-par(mfrow = c(2,2), mar = c(3.6, 3, 2.2, 0.3))
-for (i in 1:n_mods) {
-  plot_reliability(models_agg[[i]], obs_agg, model_names[i], model_colors[i],
-                   lim = lim2, ln = T, resamp = T, MCB_decomp = T)
-}
-dev.off()
 
 ###############################################
 ## Plot reliability diagram for each weekday ##
