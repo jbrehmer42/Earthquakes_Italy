@@ -1,5 +1,5 @@
-## Auxilary functions for plotting of
-## Italian earthquake data
+####################################
+## Auxiliary functions - Plotting ##
 
 # Load package for maps
 library(maps)
@@ -23,18 +23,21 @@ get_time_index <- function(DD, MM, YY, times) {
 }
 
 
-
-plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = F, resamp = NULL) {
+plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL,
+                             ln = F, resamp = NULL, MCB_decomp = F) {
   # Create a mean reliability diagram
+  # Based on code by Johannes Resin.
   #
   # Input values:
-  # aggr    - forecast vector
-  # y       - observation vector
-  # txt     - title for the diagram
-  # col     - color of the isotonic regression curve
-  # lim     - limits for both axes
-  # ln      - using log to transform both axes
-  # resamp  - number of samples if resampling should be done
+  # aggr       - forecast vector
+  # y          - observation vector
+  # txt        - title for the diagram
+  # col        - color of the isotonic regression curve
+  # lim        - limits for both axes
+  # ln         - using log to transform both axes
+  # resamp     - number of samples if resampling should be done
+  # MCB_decomp - Differentiate between conditional and
+  #              unconditional miscalibration
   # Plots a mean reliability diagram similar
   # to the one in Gneiting and Resin (2021).
   # Resampling is done, but this is not as
@@ -42,11 +45,21 @@ plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = 
   # to be nonnegative.
   yf <- isoreg(aggr, y)$yf
   x <- sort(aggr)
-  # calculate decomposition
+  # calculate score values
   score <- function(x,y) mean((x-y)^2)
   s <- score(aggr, y)
   s_rc <- score(yf, y[order(aggr)])
   s_mg <- score(mean(y), y)
+  # Decompose MCB into conditional and unconditional part
+  if (MCB_decomp)  {
+    res <- y - aggr
+    c_rc_ucond = optim(par = 0, fn = function(c) score(aggr + c, y), 
+                       method = "Brent", lower = min(res), upper = max(res))$par
+    s_rc_ucond = score(aggr + c_rc_ucond, y)
+    uMCB = s - s_rc_ucond
+    cMCB = s_rc_ucond - s_rc
+  }
+  # calculate decomposition
   MCB <- s - s_rc
   DSC <- s_mg - s_rc
   UNC <- s_mg
@@ -63,13 +76,15 @@ plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = 
     # use rounding for integer data 
     resamples <- round(pmax(resamples, 0))
     yf_resamples <- apply(resamples, 2, function(z) isoreg(x, z)$yf )
-    # sort resamples, include observed values, and correct bias (shift by mean residual)
+    # sort resamples, include observed values, and correct bias
+    # (shift by mean residual)
     yf_resamples_sorted <- apply(cbind(yf, yf_resamples), 1, sort) - mean(res)
     # Compute limits for plotting
     pind <- (x < yf_resamples_sorted[upper_limit, ]) &
               (x > yf_resamples_sorted[lower_limit, ])
     # Compute MCB p-value
-    MCB_resamples <- sapply(1:n, function(i) score(x, resamples[ ,i]) - score(yf_resamples[ ,i], resamples[ ,i]))
+    MCB_resamples <- sapply(1:n, function(i) score(x, resamples[ ,i])
+                            - score(yf_resamples[ ,i], resamples[ ,i]))
     rank_obs <- rank(c(MCB_resamples, MCB))[n+1]
     pval <- 1 - (rank_obs - 1)/(n + 1)
   }
@@ -96,8 +111,8 @@ plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = 
   if (!missing(resamp)) {
     # Add consistency band
     polygon(c(x[pind], rev(x[pind])),
-            c(yf_resamples_sorted[upper_limit, pind],
-              rev(yf_resamples_sorted[lower_limit, pind])),
+            c(yf_resamples_sorted[upper_limit,pind],
+              rev(yf_resamples_sorted[lower_limit,pind])),
             border = NA, col = "indianred1")
   }
   lines(x_line, yf_line, col = col, lwd = 2)
@@ -109,10 +124,20 @@ plot_reliability <- function(aggr, y, txt = "", col = "black", lim = NULL, ln = 
   title(xlab = "means", ylab = "recalibrated means", line = 2)
   # add decomposition values
   offs <- 0.05 * diff(lim)
-  text(x = lim[1] + offs, y = lim[2] - offs, adj = c(0,1),
-       labels = paste0(c("MCB ","DSC ","UNC", "SCR"), collapse = "\n"))
-  text(x = lim[1] + 4 * offs, y = lim[2] - offs, adj = c(0,1),
-       labels = paste0(round(c(MCB, DSC, UNC, s), digits = 3), collapse = "\n"))
+  if (MCB_decomp) {
+    text(x = lim[1] + offs, y = lim[2] - offs, adj = c(0,1),
+         labels = paste0(c("uMCB", "cMCB", "DSC ", "UNC", "SCR"),
+                         collapse = "\n"))
+    text(x = lim[1] + 4 * offs, y = lim[2] - offs, adj = c(0,1),
+         labels = paste0(round(c(uMCB, cMCB, DSC, UNC, s), digits = 3),
+                         collapse = "\n"))
+  } else {
+    text(x = lim[1] + offs, y = lim[2] - offs, adj = c(0,1),
+         labels = paste0(c("MCB ","DSC ","UNC", "SCR"), collapse = "\n"))
+    text(x = lim[1] + 4 * offs, y = lim[2] - offs, adj = c(0,1),
+         labels = paste0(round(c(MCB, DSC, UNC, s), digits = 3),
+                         collapse = "\n"))
+  }
   if (!missing(resamp)) {
     text(x = lim[1] + 7 * offs, y = lim[2] - offs, adj = c(0,1),
          paste0("[p = ", round(pval, 3), "]"))

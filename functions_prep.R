@@ -2,7 +2,6 @@
 ## Auxiliary functions - Data preparation ##
 
 
-
 load_times <- function(file_path, last_day) {
   # Load time stamps of the model outputs
   #

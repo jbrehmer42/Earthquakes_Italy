@@ -1,7 +1,7 @@
 ## Spatial plots of scores, calibration, and
 ## discrimination over testing area
 ## Now including spatial AGGREGATION
-## All maps are created as in eval3.R
+## All maps are created as in spatial_scores.R
 
 # Path for figures
 fpath <- "/media/myData/Plots/"
