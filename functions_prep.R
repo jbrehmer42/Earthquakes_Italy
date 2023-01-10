@@ -17,7 +17,7 @@ load_times <- function(file_path, last_day) {
   # index of days with only one model run. Only the
   # first time stamp of the model runs is retained
   n <- dim(times)[1]
-  time_index <- rep(T, n)git a
+  time_index <- rep(T, n)
   for (i in 2:n) {
     # Check whether previous day agrees with current day
     time_index[i] <- !all(times[i-1, 1:3] == times[i, 1:3])
