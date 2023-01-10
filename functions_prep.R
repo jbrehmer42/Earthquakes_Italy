@@ -1,6 +1,8 @@
 ############################################
 ## Auxiliary functions - Data preparation ##
 
+# missing days cause problems, need to utilize lubridate to treat them suitable
+library(lubridate)
 
 load_times <- function(file_path, last_day) {
   # Load time stamps of the model outputs
@@ -15,7 +17,7 @@ load_times <- function(file_path, last_day) {
   # index of days with only one model run. Only the
   # first time stamp of the model runs is retained
   n <- dim(times)[1]
-  time_index <- rep(T, n)
+  time_index <- rep(T, n)git a
   for (i in 2:n) {
     # Check whether previous day agrees with current day
     time_index[i] <- !all(times[i-1, 1:3] == times[i, 1:3])
@@ -151,7 +153,7 @@ filter_region <- function(events, cells) {
 }
 
 
-observation_matrix <- function(events, n_days, n_cells) {
+observation_matrix <- function(events, times, n_cells) {
   # Create an observation matrix from the events
   # data frame
   #
@@ -162,10 +164,13 @@ observation_matrix <- function(events, n_days, n_cells) {
   # Create an observation matrix which can be directly
   # compared to the forecast model output matrices.
   # Rows are days, columns are grid cells.
-  obs <- Matrix(0, ncol = n_cells, nrow = n_days, sparse = T)
-  for (i in 1:n_days) {
+  obs <- Matrix(0, ncol = n_cells, nrow = nrow(times), sparse = T)
+  event_dates <- ymd(paste(events$YY, events$MM, events$DD, sep = "-"))
+
+  for (i in 1:nrow(times)) {
+    curr_day <- ymd(paste(times[i, c("YY", "MM", "DD")], collapse = "-"))
     # Collect events in a 7-day period
-    is_in_period <- (events$TI >= i) & (events$TI < i + 7)
+    is_in_period <- (event_dates >= curr_day) & (event_dates < curr_day + days(7))
     if (any(is_in_period)) {
       obs[i, ] <- tabulate(events$N[is_in_period], nbins = n_cells)
     } else next

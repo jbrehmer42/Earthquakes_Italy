@@ -70,8 +70,7 @@ events <- filter_region(events, cells)
 # of these matrices. For example S( models[[i]], obs )
 # gives a matrix of scores for all grid cells and days
 n_cells <- dim(cells)[1]
-n_days <- dim(times)[1]
-obs <- observation_matrix(events, n_days, n_cells)
+obs <- observation_matrix(events, times, n_cells)
 
 # Load climatological model (constant in time)
 clima_file <- file.path(dpath, "rate_clima.txt")
