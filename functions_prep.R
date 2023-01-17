@@ -17,11 +17,7 @@ load_times <- function(file_path, last_day) {
   # index of days with only one model run. Only the
   # first time stamp of the model runs is retained
   n <- dim(times)[1]
-  time_index <- rep(T, n)
-  for (i in 2:n) {
-    # Check whether previous day agrees with current day
-    time_index[i] <- !all(times[i-1, 1:3] == times[i, 1:3])
-  }
+  time_index <- (times$H == 0) & (times$M == 0) & (times$S == 0)
   # Adjust for last day for which data is available. All
   # days after this day will be deleted
   match_last_day <- (times$DD == last_day$DD) &
@@ -176,4 +172,12 @@ observation_matrix <- function(events, times, n_cells) {
     } else next
   }
   return(obs)
+}
+
+count_missing_days <- function(times) {
+  n <- nrow(times)
+  my_dates <- ymd(paste(times$YY, times$MM, times$DD, sep = "-"))
+  diffs <- my_dates[2:n] - my_dates[1:(n-1)]
+
+  return(sum(diffs > days(1)))
 }

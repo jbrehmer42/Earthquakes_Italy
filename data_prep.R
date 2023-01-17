@@ -4,11 +4,13 @@
 
 # Path for r scripts
 rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
+rpath <- "./"
 
 # Path for data
 # The files containing the forecasts and observations should
 # be located in this folder
 dpath <- "/media/myData/EQData"
+dpath <- "./../data/"
 
 # Set file names (default names)
 # The forecast model outputs are arrays with time in rows
@@ -70,6 +72,7 @@ events <- filter_region(events, cells)
 # of these matrices. For example S( models[[i]], obs )
 # gives a matrix of scores for all grid cells and days
 n_cells <- dim(cells)[1]
+n_days <- dim(times)[1]
 obs <- observation_matrix(events, times, n_cells)
 
 # Load climatological model (constant in time)
