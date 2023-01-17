@@ -4,13 +4,11 @@
 
 # Path for r scripts
 rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
-rpath <- "./"
 
 # Path for data
 # The files containing the forecasts and observations should
 # be located in this folder
 dpath <- "/media/myData/EQData"
-dpath <- "./../data/"
 
 # Set file names (default names)
 # The forecast model outputs are arrays with time in rows

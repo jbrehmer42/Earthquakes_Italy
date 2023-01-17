@@ -108,6 +108,40 @@ load_events <- function(file_path, times) {
   return(events)
 }
 
+load_events2 <- function(file_path, times) {
+  # Load catalog/events data frame and treat dates properly
+  #
+  # Input values:
+  # file_path - File path for the events file
+  # times     - Time stamps of testing period
+  # Read events file
+  events <- read.table(file_path,
+                       col.names = c("YY", "MM", "DD", "H", "M", "S",
+                                     "LAT", "LON", "DEP", "MAG"))
+  # Use only events with magnitude M >= 4
+  # Using M >= 4 is equivalent to using M >= 3.95
+  M4ind <- (events$MAG >= 4)
+  events <- events[M4ind, ]
+  # Assign the day number (time index TI) to events. Days
+  # of the testing period (times) are consecutively numbered
+  n <- dim(events)[1]
+  time_index <- rep(-1, n)
+  pred_dates <- ymd(paste(times$YY, times$MM, times$DD, sep = "-"))
+
+  for (i in 1:n) {
+    event_i_date <- ymd(paste(events[i, c("YY", "MM", "DD")], collapse = "-"))
+    # event lies in the 7-day period of a prediction
+    gind <- (event_i_date >= pred_dates) & (event_i_date < pred_dates + days(7))
+    # pick largest prediction date as time index
+    if (any(gind)) time_index[i] <- max(which(gind))
+  }
+  # Erase events which do not occur during the testing period
+  events <- events[(time_index > 0), ]
+  # Add column time index (TI) to the events data frame
+  events$TI <- time_index[time_index > 0]
+  return(events)
+}
+
 
 filter_region <- function(events, cells) {
   # Filter out events which do not fall into the 
@@ -155,7 +189,7 @@ observation_matrix <- function(events, times, n_cells) {
   #
   # Input values:
   # events   - Data frame of observed events
-  # n_days   - Number of days in testing period
+  # times    - Data frame of dates of forecasts
   # n_cells  - Number of cells in testing region
   # Create an observation matrix which can be directly
   # compared to the forecast model output matrices.
@@ -175,9 +209,37 @@ observation_matrix <- function(events, times, n_cells) {
 }
 
 count_missing_days <- function(times) {
+  # Count how many dates are missing, assuming times spans a contagious timespan
+  # of days
+  #
+  # Input values:
+  # times - Data frame of dates of forecasts
+  #
   n <- nrow(times)
   my_dates <- ymd(paste(times$YY, times$MM, times$DD, sep = "-"))
   diffs <- my_dates[2:n] - my_dates[1:(n-1)]
 
   return(sum(diffs > days(1)))
+}
+
+recycle_forecasts <- function(models, times) {
+  # Recycle forecasts of previous days to impute missing forecasts
+  #
+  # Input values:
+  # models - List of forecast matrices (time x space)
+  # times  - Data frame of dates of forecasts
+  #
+  my_dates <- ymd(paste(times$YY, times$MM, times$DD, sep = "-"))
+  cont_dates <- my_dates[1] + days(1):(my_dates[length(my_dates)] - my_dates[1])
+  new_n <- length(cont_dates)
+
+  map_to_last <- sapply(1:new_n, function(i) max(which(cont_dates[i] >= my_dates)))
+
+  for (i in 1:n_mods) {
+    models[[i]] <- models[[i]][map_to_last, ]
+  }
+  times <- data.frame(YY = year(cont_dates), MM = month(cont_dates),
+                      DD = day(cont_dates))
+
+  return(list(models = models, times = times))
 }
