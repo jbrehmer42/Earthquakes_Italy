@@ -13,18 +13,18 @@ dpath <- "/media/myData/EQData"
 # Set file names (default names)
 # The forecast model outputs are arrays with time in rows
 # and grid cells in the columns
-model_files <- c("ETAS_LM.txt.xz",
-                 "ETES_FMC.txt.xz",
-                 "STEP_LG.txt.xz",
-                 "Bayesian_corr_27_10.txt.xz")
+model_files <- c("forecast_ETAS_LM_FP32.dat.xz",
+                 "forecast_ETES_FCM_FP32.dat.xz",
+                 "forecast_STEP_LG_FP32.dat.xz",
+                 "forecast-ensemble_SMA_FP32.dat.xz")
 # Time stamps corresponding to model outputs
 # (rows of the model output data)
-time_stamps_file <- "meta_rows.txt"
+time_stamps_file <- "meta_rows_dates.csv"
 # Locations of grid cells corresponding to model outputs
 # (columns of the model output data)
-cell_file <- "meta_column.csv"
+cell_file <- "meta_columns_cells.csv"
 # Catalog of observed earthquakes
-events_file <- "meta_catalogo.txt"
+events_file <- "catalog.csv"
 
 # Load necessary packages
 library(Matrix)
@@ -74,17 +74,17 @@ n_days <- dim(times)[1]
 obs <- observation_matrix(events, times, n_cells)
 
 # Load climatological model (constant in time)
-clima_file <- file.path(dpath, "rate_clima.txt")
-clima <- read.table(clima_file, header = F, col.names = c("LON", "LAT", "RATE"))
+# clima_file <- file.path(dpath, "rate_clima.txt")
+# clima <- read.table(clima_file, header = F, col.names = c("LON", "LAT", "RATE"))
 
 # The climatology file contains only normalized rates, i.e. spatial
 # distribution of events. We have to multiply it by the value of events
 # per time period. Different choices (depending on how we include after
 # shocks) are possible
 #events_per7 <- 25.95 * 7/365      # See Mail by Warner (08.09.21)
-events_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
+# events_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
 #events_per7 <- 16.97 * 7/365      # Events per year (calculated from events file)
-clima$RATE <- clima$RATE * events_per7
+# clima$RATE <- clima$RATE * events_per7
 
 ## Clean up
-rm(file_path, clima_file)
+# rm(file_path, clima_file)

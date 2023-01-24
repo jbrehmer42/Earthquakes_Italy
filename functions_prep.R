@@ -12,11 +12,13 @@ load_times <- function(file_path, last_day) {
   # last_day   - Last day for which forecasts can be
   #            evaluated.
   # Read time stamps from file
-  times <- read.table(file_path, col.names = c("DD", "MM", "YY", "H", "M", "S"))
+  times <- read.csv(file_path, col.names = "T")
+  t <- ymd_hms(times$T)
+  times <- data.frame(YY = year(t), MM = month(t), DD = day(t),
+                      H = hour(t), M = minute(t), S = second(t))
   # Filter out days with multiple model runs: Compute
   # index of days with only one model run. Only the
   # first time stamp of the model runs is retained
-  n <- dim(times)[1]
   time_index <- (times$H == 0) & (times$M == 0) & (times$S == 0)
   # Adjust for last day for which data is available. All
   # days after this day will be deleted
@@ -55,17 +57,16 @@ load_models <- function(file_paths, time_index) {
 }
 
 
-
 load_cells <- function(file_path) {
   # Load grid cell information (specifies the testing region)
   #
   # Input values:
   # file_path  -  File path for the grid cells file
   # Read grid cell file
-  cells <- read.csv(file_path, header = F, col.names = c("LON", "LAT", "N"))
+  cells <- read.csv(file_path, header = T, col.names = c("LON", "LAT"))
   # Start numbering the grid cells with 1 (just for
   # convenience and interpretability)
-  cells$N <- cells$N + 1
+  cells$N <- 1:nrow(cells)
   # Add x-y-coordinates for cells
   xvals <- sort(unique(cells$LON))
   yvals <- sort(unique(cells$LAT))
@@ -76,16 +77,19 @@ load_cells <- function(file_path) {
 
 
 
-load_events <- function(file_path, times) {
+load_events <- function(file_path, times, cells) {
   # Load catalog/events data frame
   #
   # Input values:
   # file_path - File path for the events file
   # times     - Time stamps of testing period
+  # cells     - Data frame of grid cells
   # Read events file
-  events <- read.table(file_path,
-                       col.names = c("YY", "MM", "DD", "H", "M", "S", 
-                                     "LAT", "LON", "DEP", "MAG"))
+  events <- read.csv(file_path, col.names = c("T", "LAT", "LON", "DEP", "MAG"))
+  t <- ymd_hms(events$T)
+  events <- cbind(events, data.frame(YY = year(t), MM = month(t), DD = day(t),
+                                     H = hour(t), M = minute(t), S = second(t)))
+  events <- events[, colnames(events) != "T"]
   # Use only events with magnitude M >= 4
   # Using M >= 4 is equivalent to using M >= 3.95
   M4ind <- (events$MAG >= 4)
@@ -115,9 +119,12 @@ load_events2 <- function(file_path, times) {
   # file_path - File path for the events file
   # times     - Time stamps of testing period
   # Read events file
-  events <- read.table(file_path,
-                       col.names = c("YY", "MM", "DD", "H", "M", "S",
-                                     "LAT", "LON", "DEP", "MAG"))
+  events <- read.csv(file_path,
+                       col.names = c("T", "LAT", "LON", "DEP", "MAG"))
+  t <- ymd_hms(events$T)
+  events <- cbind(events, data.frame(YY = year(t), MM = month(t), DD = day(t),
+                                     H = hour(t), M = minute(t), S = second(t)))
+  events <- events[, colnames(events) != "T"]
   # Use only events with magnitude M >= 4
   # Using M >= 4 is equivalent to using M >= 3.95
   M4ind <- (events$MAG >= 4)
