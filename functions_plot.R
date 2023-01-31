@@ -13,7 +13,7 @@ get_time_index <- function(DD, MM, YY, times) {
   # MM     -  month of date as integer
   # YY     -  year of date as integer
   # times  -  time stamps of the model outputs
-  match_day <- (times$DD == DD) & (times$MM == MM) & (times$YY == YY) 
+  match_day <- times == ymd(paste(YY, MM, DD))
   if (any(match_day)) {
     time_index <- which(match_day)
   } else {
@@ -386,7 +386,7 @@ plot_scores <- function(scores, times, model_names, model_colors, file_path,
     t_end <- get_time_index(tlim[[2]][1], tlim[[2]][2], tlim[[2]][3], times)
     stopifnot(t_start < t_end)
     scores <- as.matrix( scores[t_start:t_end, ] )
-    times <- times[t_start:t_end, ]
+    times <- times[t_start:t_end]
     if (hasArg(events)) {
       events <- events[(events$TI >= t_start) & (events$TI <= t_end), ]
       events$TI <- events$TI - t_start + 1
@@ -403,9 +403,9 @@ plot_scores <- function(scores, times, model_names, model_colors, file_path,
   }
   if (missing(whichmods)) whichmods <- 1:(dim(scores)[2])
   if (missing(days)) {
-    days <- 1:dim(times)[1]
+    days <- 1:length(times)
   } else {
-    stopifnot(length(days) == dim(times)[1])
+    stopifnot(length(days) == length(times))
   }
   negative_scores <- any(scores[days, ] <= 0, na.rm = TRUE)
   # Set parameters
@@ -442,12 +442,12 @@ plot_scores <- function(scores, times, model_names, model_colors, file_path,
   }
   # Determine x-axis ticks and labels
   if (hasArg(tlim) & n_days < 1000) {
-    x_days <- (times$DD == 1)
-    x_labels <- paste0(sprintf("%2d", times$MM[x_days]), "\'",
-                       times$YY[x_days] %% 100)
+    x_days <- (day(times) == 1)
+    x_labels <- paste0(sprintf("%2d", month(times[x_days])), "\'",
+                       year(times[x_days]) %% 100)
   } else {
-    x_days <- (times$DD == 1) & (times$MM == 1)
-    x_labels <- times$YY[x_days]
+    x_days <- (day(times) == 1) & (month(times) == 1)
+    x_labels <- year(times[x_days])
   }
   x_ats <- which(x_days)
   # Start plotting
@@ -529,7 +529,7 @@ plot_score_diffs <- function(scores, times, model_names, model_colors,
     t_end <- get_time_index(tlim[[2]][1], tlim[[2]][2], tlim[[2]][3], times)
     stopifnot(t_start < t_end)
     scores <- as.matrix( scores[t_start:t_end, ] )
-    times <- times[t_start:t_end, ]
+    times <- times[t_start:t_end]
     if (hasArg(events)) {
       events <- events[(events$TI >= t_start) & (events$TI <= t_end), ]
       events$TI <- events$TI - t_start + 1
@@ -546,9 +546,9 @@ plot_score_diffs <- function(scores, times, model_names, model_colors,
   }
   if (missing(whichmods)) whichmods <- 1:(dim(scores)[2])
   if (missing(days)) {
-    days <- 1:dim(times)[1]
+    days <- 1:length(times)
   } else {
-    stopifnot(length(days) == dim(times)[1])
+    stopifnot(length(days) == length(times))
   }
   # Set parameters
   n_days <- length(days)
@@ -572,12 +572,12 @@ plot_score_diffs <- function(scores, times, model_names, model_colors,
   }
   # Determine x-axis ticks and labels
   if (hasArg(tlim) & n_days < 1000) {
-    x_days <- (times$DD == 1)
-    x_labels <- paste0(sprintf("%2d", times$MM[x_days]), "\'",
-                       times$YY[x_days] %% 100)
+    x_days <- (day(times) == 1)
+    x_labels <- paste0(sprintf("%2d", month(times[x_days])), "\'",
+                       year(times[x_days]) %% 100)
   } else {
-    x_days <- (times$DD == 1) & (times$MM == 1)
-    x_labels <- times$YY[x_days]
+    x_days <- (day(times) == 1) & (month(times) == 1)
+    x_labels <- year(times[x_days])
   }
   x_ats <- which(x_days)
   # Start plotting

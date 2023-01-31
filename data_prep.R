@@ -70,21 +70,21 @@ events <- filter_region(events, cells)
 # of these matrices. For example S( models[[i]], obs )
 # gives a matrix of scores for all grid cells and days
 n_cells <- dim(cells)[1]
-n_days <- dim(times)[1]
+n_days <- length(times)
 obs <- observation_matrix(events, times, n_cells)
 
 # Load climatological model (constant in time)
-# clima_file <- file.path(dpath, "rate_clima.txt")
-# clima <- read.table(clima_file, header = F, col.names = c("LON", "LAT", "RATE"))
+clima_file <- file.path(dpath, "rate_clima.txt")
+clima <- read.table(clima_file, header = F, col.names = c("LON", "LAT", "RATE"))
 
 # The climatology file contains only normalized rates, i.e. spatial
 # distribution of events. We have to multiply it by the value of events
 # per time period. Different choices (depending on how we include after
 # shocks) are possible
 #events_per7 <- 25.95 * 7/365      # See Mail by Warner (08.09.21)
-# events_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
+events_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
 #events_per7 <- 16.97 * 7/365      # Events per year (calculated from events file)
-# clima$RATE <- clima$RATE * events_per7
+clima$RATE <- clima$RATE * events_per7
 
 ## Clean up
-# rm(file_path, clima_file)
+rm(file_path, clima_file)

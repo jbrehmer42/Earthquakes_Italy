@@ -1,8 +1,7 @@
 ############################################
 ## Auxiliary functions - Data preparation ##
 
-# missing days cause problems, need to utilize lubridate to treat them suitable
-library(lubridate)
+library(lubridate)    # work with dates
 
 load_times <- function(file_path, last_day) {
   # Load time stamps of the model outputs
@@ -13,23 +12,19 @@ load_times <- function(file_path, last_day) {
   #            evaluated.
   # Read time stamps from file
   times <- read.csv(file_path, col.names = "T")
-  t <- ymd_hms(times$T)
-  times <- data.frame(YY = year(t), MM = month(t), DD = day(t),
-                      H = hour(t), M = minute(t), S = second(t))
+  times <- ymd_hms(times$T)
   # Filter out days with multiple model runs: Compute
   # index of days with only one model run. Only the
   # first time stamp of the model runs is retained
-  time_index <- (times$H == 0) & (times$M == 0) & (times$S == 0)
+  time_index <- (hour(times) == 0 & minute(times) == 0 & second(times) == 0)
   # Adjust for last day for which data is available. All
   # days after this day will be deleted
-  match_last_day <- (times$DD == last_day$DD) &
-                      (times$MM == last_day$MM) &
-                      (times$YY == last_day$YY)
-  if (any(match_last_day)) time_index[max(which(match_last_day)+1):
-                                      length(time_index)] <- FALSE
-  times <- times[time_index, ]
+  before_last_day <- (times <= ymd(with(last_day, paste(YY, MM, DD))))
+
+  times_filter <- time_index & before_last_day
+  times <- times[times_filter]
   # Return new time stamps and index of corresponding rows
-  return(list(times = times, time_index = time_index))
+  return(list(times = times, time_index = times_filter))
 }
 
 
@@ -76,55 +71,15 @@ load_cells <- function(file_path) {
 }
 
 
-
-load_events <- function(file_path, times, cells) {
-  # Load catalog/events data frame
-  #
-  # Input values:
-  # file_path - File path for the events file
-  # times     - Time stamps of testing period
-  # cells     - Data frame of grid cells
-  # Read events file
-  events <- read.csv(file_path, col.names = c("T", "LAT", "LON", "DEP", "MAG"))
-  t <- ymd_hms(events$T)
-  events <- cbind(events, data.frame(YY = year(t), MM = month(t), DD = day(t),
-                                     H = hour(t), M = minute(t), S = second(t)))
-  events <- events[, colnames(events) != "T"]
-  # Use only events with magnitude M >= 4
-  # Using M >= 4 is equivalent to using M >= 3.95
-  M4ind <- (events$MAG >= 4)
-  events <- events[M4ind, ]
-  # Assign the day number (time index TI) to events. Days
-  # of the testing period (times) are consecutively numbered
-  n <- dim(events)[1]
-  time_index <- rep(-1, n)
-  for (i in 1:n) {
-    DD <- events$DD[i]
-    MM <- events$MM[i]
-    YY <- events$YY[i]
-    gind <- (times$DD == DD) & (times$MM == MM) & (times$YY == YY)
-    if (any(gind)) time_index[i] <- which(gind)
-  }
-  # Erase events which do not occur during the testing period
-  events <- events[(time_index > 0), ]
-  # Add column time index (TI) to the events data frame
-  events$TI <- time_index[time_index > 0]
-  return(events)
-}
-
-load_events2 <- function(file_path, times) {
+load_events <- function(file_path, times) {
   # Load catalog/events data frame and treat dates properly
   #
   # Input values:
   # file_path - File path for the events file
   # times     - Time stamps of testing period
   # Read events file
-  events <- read.csv(file_path,
-                       col.names = c("T", "LAT", "LON", "DEP", "MAG"))
-  t <- ymd_hms(events$T)
-  events <- cbind(events, data.frame(YY = year(t), MM = month(t), DD = day(t),
-                                     H = hour(t), M = minute(t), S = second(t)))
-  events <- events[, colnames(events) != "T"]
+  events <- read.csv(file_path, col.names = c("TS", "LAT", "LON", "DEP", "MAG"))
+  events$TS <- ymd_hms(events$TS)
   # Use only events with magnitude M >= 4
   # Using M >= 4 is equivalent to using M >= 3.95
   M4ind <- (events$MAG >= 4)
@@ -133,13 +88,11 @@ load_events2 <- function(file_path, times) {
   # of the testing period (times) are consecutively numbered
   n <- dim(events)[1]
   time_index <- rep(-1, n)
-  pred_dates <- ymd(paste(times$YY, times$MM, times$DD, sep = "-"))
 
   for (i in 1:n) {
-    event_i_date <- ymd(paste(events[i, c("YY", "MM", "DD")], collapse = "-"))
-    # event lies in the 7-day period of a prediction
-    gind <- (event_i_date >= pred_dates) & (event_i_date < pred_dates + days(7))
-    # pick largest prediction date as time index
+    # filter for events lying in the 7-day period of a prediction
+    gind <- (events$TS[i] >= times) & (events$TS[i] < times + days(7))
+    # pick pred date closest to event date as time index
     if (any(gind)) time_index[i] <- max(which(gind))
   }
   # Erase events which do not occur during the testing period
@@ -201,16 +154,14 @@ observation_matrix <- function(events, times, n_cells) {
   # Create an observation matrix which can be directly
   # compared to the forecast model output matrices.
   # Rows are days, columns are grid cells.
-  obs <- Matrix(0, ncol = n_cells, nrow = nrow(times), sparse = T)
-  event_dates <- ymd(paste(events$YY, events$MM, events$DD, sep = "-"))
+  obs <- Matrix(0, ncol = n_cells, nrow = length(times), sparse = T)
 
-  for (i in 1:nrow(times)) {
-    curr_day <- ymd(paste(times[i, c("YY", "MM", "DD")], collapse = "-"))
+  for (i in 1:length(times)) {
     # Collect events in a 7-day period
-    is_in_period <- (event_dates >= curr_day) & (event_dates < curr_day + days(7))
+    is_in_period <- (events$TS >= times[i]) & (events$TS < times[i] + days(7))
     if (any(is_in_period)) {
       obs[i, ] <- tabulate(events$N[is_in_period], nbins = n_cells)
-    } else next
+    }
   }
   return(obs)
 }
@@ -221,11 +172,7 @@ count_missing_days <- function(times) {
   #
   # Input values:
   # times - Data frame of dates of forecasts
-  #
-  n <- nrow(times)
-  my_dates <- ymd(paste(times$YY, times$MM, times$DD, sep = "-"))
-  diffs <- my_dates[2:n] - my_dates[1:(n-1)]
-
+  diffs <- times[-1] - times[-nrow(times)]
   return(sum(diffs > days(1)))
 }
 
@@ -236,17 +183,13 @@ recycle_forecasts <- function(models, times) {
   # models - List of forecast matrices (time x space)
   # times  - Data frame of dates of forecasts
   #
-  my_dates <- ymd(paste(times$YY, times$MM, times$DD, sep = "-"))
-  cont_dates <- my_dates[1] + days(1):(my_dates[length(my_dates)] - my_dates[1])
+  cont_dates <- times[1] + days(1):(times[length(times)] - times[1])
   new_n <- length(cont_dates)
 
-  map_to_last <- sapply(1:new_n, function(i) max(which(cont_dates[i] >= my_dates)))
+  map_to_last <- sapply(1:new_n, function(i) max(which(cont_dates[i] >= times)))
 
   for (i in 1:n_mods) {
     models[[i]] <- models[[i]][map_to_last, ]
   }
-  times <- data.frame(YY = year(cont_dates), MM = month(cont_dates),
-                      DD = day(cont_dates))
-
-  return(list(models = models, times = times))
+  return(list(models = models, times = cont_dates))
 }
