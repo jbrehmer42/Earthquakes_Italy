@@ -13,18 +13,18 @@ dpath <- "/media/myData/EQData"
 # Set file names (default names)
 # The forecast model outputs are arrays with time in rows
 # and grid cells in the columns
-model_files <- c("ETAS_LM.txt.xz",
-                 "ETES_FMC.txt.xz",
-                 "STEP_LG.txt.xz",
-                 "Bayesian_corr_27_10.txt.xz")
+model_files <- c("forecast_ETAS_LM_FP32.dat.xz",
+                 "forecast_ETES_FCM_FP32.dat.xz",
+                 "forecast_STEP_LG_FP32.dat.xz",
+                 "forecast-ensemble_SMA_FP32.dat.xz")
 # Time stamps corresponding to model outputs
 # (rows of the model output data)
-time_stamps_file <- "meta_rows.txt"
+time_stamps_file <- "meta_rows_dates.csv"
 # Locations of grid cells corresponding to model outputs
 # (columns of the model output data)
-cell_file <- "meta_column.csv"
+cell_file <- "meta_columns_cells.csv"
 # Catalog of observed earthquakes
-events_file <- "meta_catalogo.txt"
+events_file <- "catalog.csv"
 
 # Load necessary packages
 library(Matrix)
@@ -70,8 +70,8 @@ events <- filter_region(events, cells)
 # of these matrices. For example S( models[[i]], obs )
 # gives a matrix of scores for all grid cells and days
 n_cells <- dim(cells)[1]
-n_days <- dim(times)[1]
-obs <- observation_matrix(events, n_days, n_cells)
+n_days <- length(times)
+obs <- observation_matrix(events, times, n_cells)
 
 # Load climatological model (constant in time)
 clima_file <- file.path(dpath, "rate_clima.txt")

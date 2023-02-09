@@ -1,6 +1,7 @@
 ############################################
 ## Auxiliary functions - Data preparation ##
 
+library(lubridate)    # work with dates
 
 load_times <- function(file_path, last_day) {
   # Load time stamps of the model outputs
@@ -10,26 +11,20 @@ load_times <- function(file_path, last_day) {
   # last_day   - Last day for which forecasts can be
   #            evaluated.
   # Read time stamps from file
-  times <- read.table(file_path, col.names = c("DD", "MM", "YY", "H", "M", "S"))
+  times <- read.csv(file_path, col.names = "T")
+  times <- ymd_hms(times$T)
   # Filter out days with multiple model runs: Compute
   # index of days with only one model run. Only the
   # first time stamp of the model runs is retained
-  n <- dim(times)[1]
-  time_index <- rep(T, n)
-  for (i in 2:n) {
-    # Check whether previous day agrees with current day
-    time_index[i] <- !all(times[i-1, 1:3] == times[i, 1:3])
-  }
+  time_index <- (hour(times) == 0 & minute(times) == 0 & second(times) == 0)
   # Adjust for last day for which data is available. All
   # days after this day will be deleted
-  match_last_day <- (times$DD == last_day$DD) &
-                      (times$MM == last_day$MM) &
-                      (times$YY == last_day$YY)
-  if (any(match_last_day)) time_index[max(which(match_last_day)+1):
-                                      length(time_index)] <- FALSE
-  times <- times[time_index, ]
+  before_last_day <- (times <= ymd(with(last_day, paste(YY, MM, DD))))
+
+  times_filter <- time_index & before_last_day
+  times <- times[times_filter]
   # Return new time stamps and index of corresponding rows
-  return(list(times = times, time_index = time_index))
+  return(list(times = times, time_index = times_filter))
 }
 
 
@@ -57,17 +52,16 @@ load_models <- function(file_paths, time_index) {
 }
 
 
-
 load_cells <- function(file_path) {
   # Load grid cell information (specifies the testing region)
   #
   # Input values:
   # file_path  -  File path for the grid cells file
   # Read grid cell file
-  cells <- read.csv(file_path, header = F, col.names = c("LON", "LAT", "N"))
+  cells <- read.csv(file_path, header = T, col.names = c("LON", "LAT"))
   # Start numbering the grid cells with 1 (just for
   # convenience and interpretability)
-  cells$N <- cells$N + 1
+  cells$N <- 1:nrow(cells)
   # Add x-y-coordinates for cells
   xvals <- sort(unique(cells$LON))
   yvals <- sort(unique(cells$LAT))
@@ -77,17 +71,15 @@ load_cells <- function(file_path) {
 }
 
 
-
 load_events <- function(file_path, times) {
-  # Load catalog/events data frame
+  # Load catalog/events data frame and treat dates properly
   #
   # Input values:
   # file_path - File path for the events file
   # times     - Time stamps of testing period
   # Read events file
-  events <- read.table(file_path,
-                       col.names = c("YY", "MM", "DD", "H", "M", "S", 
-                                     "LAT", "LON", "DEP", "MAG"))
+  events <- read.csv(file_path, col.names = c("TS", "LAT", "LON", "DEP", "MAG"))
+  events$TS <- ymd_hms(events$TS)
   # Use only events with magnitude M >= 4
   # Using M >= 4 is equivalent to using M >= 3.95
   M4ind <- (events$MAG >= 4)
@@ -96,12 +88,12 @@ load_events <- function(file_path, times) {
   # of the testing period (times) are consecutively numbered
   n <- dim(events)[1]
   time_index <- rep(-1, n)
+
   for (i in 1:n) {
-    DD <- events$DD[i]
-    MM <- events$MM[i]
-    YY <- events$YY[i]
-    gind <- (times$DD == DD) & (times$MM == MM) & (times$YY == YY)
-    if (any(gind)) time_index[i] <- which(gind)
+    # filter for events lying in the 7-day period of a prediction
+    gind <- (events$TS[i] >= times) & (events$TS[i] < times + days(7))
+    # pick pred date closest to event date as time index
+    if (any(gind)) time_index[i] <- max(which(gind))
   }
   # Erase events which do not occur during the testing period
   events <- events[(time_index > 0), ]
@@ -151,24 +143,53 @@ filter_region <- function(events, cells) {
 }
 
 
-observation_matrix <- function(events, n_days, n_cells) {
+observation_matrix <- function(events, times, n_cells) {
   # Create an observation matrix from the events
   # data frame
   #
   # Input values:
   # events   - Data frame of observed events
-  # n_days   - Number of days in testing period
+  # times    - Data frame of dates of forecasts
   # n_cells  - Number of cells in testing region
   # Create an observation matrix which can be directly
   # compared to the forecast model output matrices.
   # Rows are days, columns are grid cells.
-  obs <- Matrix(0, ncol = n_cells, nrow = n_days, sparse = T)
-  for (i in 1:n_days) {
+  obs <- Matrix(0, ncol = n_cells, nrow = length(times), sparse = T)
+
+  for (i in 1:length(times)) {
     # Collect events in a 7-day period
-    is_in_period <- (events$TI >= i) & (events$TI < i + 7)
+    is_in_period <- (events$TS >= times[i]) & (events$TS < times[i] + days(7))
     if (any(is_in_period)) {
       obs[i, ] <- tabulate(events$N[is_in_period], nbins = n_cells)
-    } else next
+    }
   }
   return(obs)
+}
+
+count_missing_days <- function(times) {
+  # Count how many dates are missing, assuming times spans a contagious timespan
+  # of days
+  #
+  # Input values:
+  # times - Data frame of dates of forecasts
+  diffs <- times[-1] - times[-nrow(times)]
+  return(sum(diffs > days(1)))
+}
+
+recycle_forecasts <- function(models, times) {
+  # Recycle forecasts of previous days to impute missing forecasts
+  #
+  # Input values:
+  # models - List of forecast matrices (time x space)
+  # times  - Data frame of dates of forecasts
+  #
+  cont_dates <- times[1] + days(1):(times[length(times)] - times[1])
+  new_n <- length(cont_dates)
+
+  map_to_last <- sapply(1:new_n, function(i) max(which(cont_dates[i] >= times)))
+
+  for (i in 1:n_mods) {
+    models[[i]] <- models[[i]][map_to_last, ]
+  }
+  return(list(models = models, times = cont_dates))
 }
