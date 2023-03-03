@@ -3,6 +3,7 @@ library(dplyr)
 library(tidyr)
 library(data.table)
 
+library(gridExtra)        # grid.arrange : put ggplots next to each other
 library(monotone)         # for fast isotonic regression
 library(sf)               # st_as_sf : convert data.frame to geographic format sf
 library(rnaturalearth)    # ne_countries - to load country data
@@ -80,8 +81,6 @@ eq_shape <- 3   # shape of marks for earthquakes
 pred_by_day %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
   ggplot() +
-  geom_hline(data = data.frame(Model = "Climatology", value = sum(clima$RATE)),
-             aes(yintercept = value, color = Model), size = 0.3) +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   geom_point(data = filter(pred_by_day, earthquake),
              aes(x = X, y = 0.15, color = "Observed earthquakes"),
@@ -90,13 +89,13 @@ pred_by_day %>%
   scale_y_log10() +
   scale_color_manual(
     name = NULL,
-    values = c("Climatology" = "#7d7b7a", model_colors, "Observed earthquakes" = "black"),
-    guide = guide_legend(override.aes = list(linetype = c(rep(1, 5), 0),
-                                             shape = c(rep(NA, 5), eq_shape)), nrow = 5)
+    values = c(model_colors, "Observed earthquakes" = "black"),
+    guide = guide_legend(override.aes = list(linetype = c(rep(1, 4), 0),
+                                             shape = c(rep(NA, 4), eq_shape)), nrow = 4)
   ) +
   xlab("") +
   ylab("Predicted mean") +
-  ggtitle("Predictions for all of Italy") +
+  ggtitle("Predicted Mean Number of Events for all of Italy") +
   theme_bw() +
   my_theme +
   theme(legend.justification = c(0, 1), legend.position = c(0.01, 1.02),
@@ -157,15 +156,62 @@ rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day)
 # Visualize Poisson Scores over time and score differences spatially
 ################################################################################
 
-scores <- do.call(cbind, lapply(models, function(X) rowMeans(S_pois(X, obs))))
-scores <- data.frame(scores)
-colnames(scores) <- model_names
-
-# and now spatially
-
 cmp_model <- "LM"
 cmp_m <- sym(cmp_model)
 ana_models <- model_names[model_names != cmp_model]
+
+scores <- do.call(cbind, lapply(models, function(X) rowMeans(S_pois(X, obs))))
+scores <- data.frame(scores) %>%
+  mutate(X = 1:nrow(.), earthquake = rowSums(obs) != 0)
+colnames(scores) <- c(model_names, "X", "earthquake")
+
+diff_scores <- scores %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  select(X, earthquake, all_of(ana_models)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model")
+
+## render_strips?
+
+no_eq <- diff_scores %>%
+  mutate(value = ifelse(earthquake, NA, value)) %>%
+  ggplot() +
+  facet_wrap(~"Days with no earthquake") +
+  geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
+  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year])) +
+  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
+                     labels = paste(c("", " ", ""), ana_models, "vs.", cmp_model)) +
+  scale_y_continuous(labels = scientific) +
+  xlab("") +
+  ylab("Score") +
+  ggtitle("Daily Average Poisson Score Differences") +
+  theme_bw() +
+  my_theme +
+  theme(legend.justification = c(0, 1), legend.position = c(0.01, 0.99),
+        legend.direction = "vertical", strip.background = element_blank(),
+        legend.key.size = unit(0.5, "lines"))
+
+yes_eq <- diff_scores %>%
+  mutate(value = ifelse(earthquake, value, NA)) %>%
+  ggplot() +
+  facet_wrap(~"Days with at least one earthquake") +
+  geom_point(aes(x = X, y = value, color = Model), show.legend = FALSE, size = 0.4) +
+  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year])) +
+  scale_color_manual(name = NULL, values = model_colors) +
+  scale_y_continuous(labels = scientific) +
+  xlab("") +
+  ylab(NULL) +
+  ggtitle("") +
+  theme_bw() +
+  my_theme +
+  theme(strip.background = element_blank())
+
+stack_plots <- grid.arrange(no_eq, yes_eq, nrow = 1)
+file_path <- file.path(fpath, "Poster_Fig4.pdf")
+ggsave(file_path, width = 200, height = 110, unit = "mm", plot = stack_plots)
+
+# and now spatially
 
 scores <- do.call(cbind, lapply(models, function(X) colMeans(S_pois(X, obs))))
 scores <- data.frame(scores)
@@ -178,66 +224,39 @@ diff_scores <- scores %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
 diff_scores$Model <- paste(diff_scores$Model, "vs.", cmp_model)
 
-neigh_mat <- function(cells, k, diff = function(x, y) abs(x - y), agg = pmax) {
-  # Compute neighborhood matrix for spatial aggregation:
-  # binary square matrix where a 1 at position (i,j) indicates that cells i and
-  # j are in each others neighborhoods.
+my_colors <- c("#ff9603", "#f51818", "#ffffff", "#057ffa")
+limits <- range(diff_scores$value)
+my_breaks <- c(-0.01, -0.001, 0, 0.001)
+my_labels <- c("-1e-2", "-1e-3", " 0", " 1e-3")
 
-  n_cells <- dim(cells)[1]
-  # Aggregation will usually be done for small values
-  # of k so "sparse = T" makes sense in most cases
-  mat <- Matrix(0, nrow = n_cells, ncol = n_cells, sparse = T)
-  for (i in 1:n_cells) {
-    neighbors <- agg(diff(cells$X[i], cells$X), diff(cells$Y[i], cells$Y)) <= k
-    mat[, i] <- as.numeric(neighbors)
-  }
-  return(mat)
-}
-
-m_neigh <- neigh_mat(cells, 2, function(x, y) (x - y)^2, function(x, y) sqrt(x + y))
-obs_acc <- obs %*% m_neigh
-
-scores_acc <- do.call(cbind, lapply(models, function(X) colMeans(S_pois(X %*% m_neigh, obs_acc))))
-scores_acc <- data.frame(scores_acc)
-colnames(scores_acc) <- model_names
-
-diff_scores_acc <- scores_acc %>%
-  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
-  mutate(LON = cells$LON, LAT = cells$LAT) %>%
-  select(LON, LAT, all_of(ana_models)) %>%
-  pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores_acc$Model <- paste(diff_scores_acc$Model, "vs.", cmp_model)
-
-combine <- rbind(
-  cbind(diff_scores, R = ""), cbind(diff_scores_acc, R = "Local aggregation (r = 2)")
+# need log transform for positive and negative values (see ?modulus_trans)
+# but need to scale with d to get sufficient resolution
+d <- 10^5
+my_trans <- trans_new(
+  "log", function(x) sign(x) * log(abs(x) * d  + 1),
+  function(y) sign(y) / d * (exp(abs(y)) - 1)
 )
-
-my_colors <- c("#fca428", "#f51818", "#ffffff", "#057ffa")
-limits <- range(combine$value)
-my_breaks <- c(-0.05, -0.007, -0.0001, 0.0001, 0.007)
-my_trans <- modulus_trans(0)    # sgn(x) log(|x|+1)
 col_breaks <- my_trans$transform(c(limits[1], -limits[2], 0, limits[2]))
 
 ggplot() +
-  facet_grid(R~Model) +
-  geom_tile(data = combine,
+  facet_grid(~Model) +
+  geom_tile(data = diff_scores,
             aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", fill = NA,
           size = 0.2) +
   coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
   scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  scale_fill_gradientn(name = "Score difference",
-                       trans = my_trans, limits = limits,
-                       colors = my_colors, values = rescale(col_breaks),
-                       breaks = my_breaks, labels = my_breaks) +
-  ggtitle("Score Differences") +
+  scale_fill_gradientn(name = "Score\ndifference",
+                       trans = my_trans, colors = my_colors, values = rescale(col_breaks),
+                       breaks = my_breaks, labels = my_labels) +
+  ggtitle("Average Score Differences") +
   theme_bw() +
   my_theme +
-  theme(legend.position = "bottom", strip.background = element_blank())
+  theme(legend.position = "right", strip.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig5.pdf")
-ggsave(file_path, width = 180, height = 160, unit = "mm")
+ggsave(file_path, width = 180, height = 80, unit = "mm")
 
 rm(scores, scores_acc, obs_acc, m_neigh, diff_scores, diff_scores_acc, combine)
 
