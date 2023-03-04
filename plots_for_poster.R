@@ -83,25 +83,19 @@ pred_by_day %>%
   ggplot() +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   geom_point(data = filter(pred_by_day, earthquake),
-             aes(x = X, y = 0.15, color = "Observed earthquakes"),
-             size = 0.7, stroke = 0.4, shape = eq_shape) +
+             aes(x = X, y = 0.15, shape = "Obs. earthquakes"),
+             size = 0.7, stroke = 0.4, color = "black") +
   scale_x_continuous(breaks = pred_by_day$X[new_year], labels = year(times[new_year])) +
   scale_y_log10() +
-  scale_color_manual(
-    name = NULL,
-    values = c(model_colors, "Observed earthquakes" = "black"),
-    guide = guide_legend(override.aes = list(linetype = c(rep(1, 4), 0),
-                                             shape = c(rep(NA, 4), eq_shape)), nrow = 4)
-  ) +
-  xlab("") +
+  scale_color_manual(name = NULL, values = model_colors) +
+  scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = eq_shape)) +
+  xlab(NULL) +
   ylab("Predicted mean") +
   ggtitle("Predicted Mean Number of Events for all of Italy") +
   theme_bw() +
   my_theme +
   theme(legend.justification = c(0, 1), legend.position = c(0.01, 1.02),
-        legend.direction = "vertical",
-        legend.key.size = unit(0.5, "lines"),
-        legend.background = element_blank())
+        legend.box = "horizontal", legend.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig2.pdf")
 ggsave(file_path, width = 140, height = 90, unit = "mm")
@@ -125,30 +119,31 @@ events_by_cell <- events %>%
   select(LON, LAT, Count)
 
 ggplot() +
-  facet_wrap(~Model, ncol = 2) +
-  geom_tile(data = pred_by_cell_long,
-            aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
+  facet_wrap(~Model, nrow = 1) +
+  geom_tile(data = pred_by_cell_long, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
           size = 0.2, fill = NA) +
-  geom_tile(data = events_by_cell, aes(x = LON, LAT, color = "Observed earthquakes"), fill = NA) +
+  geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs. earthquakes"), fill = NA) +
   coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
   scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  scale_fill_viridis_c(name = "Predicted\nmean",
+  scale_fill_viridis_c(name = "Predicted mean",
                        breaks = 10^(c(-9, -7, -5, -3)), labels = paste0("e", c(-9, -7, -5, -3)),
-                       trans = "log10", option = "magma") +
-  scale_color_manual(name = "Observed\nearthquakes", values = c("Observed earthquakes" = "black"),
+                       trans = "log10", option = "magma",
+                       guide = guide_colorbar(title.vjust = 0.5)) +
+  scale_color_manual(name = "Observed earthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
-                                          keyheight = unit(5, "points"))) +
-  ggtitle(paste("Predictions for the", times[i_time], "-", times[i_time] + days(7))) +
+                                          keyheight = unit(5, "points"),
+                                          title.vjust = 0.6)) +
+  ggtitle("Earthquakes in the 7-day Period following the 3rd of April 2009") +
   theme_bw() +
   my_theme +
-  theme(legend.position = "right", strip.background = element_blank(),
-        legend.title = element_text(size = 9))
+  theme(legend.position = "bottom", strip.background = element_blank(),
+        legend.title = element_text(size = 8), legend.box.just = "left")
 
 file_path <- file.path(fpath, "Poster_Fig3.pdf")
-ggsave(file_path, width = 200, height = 180, unit = "mm")
+ggsave(file_path, width = 250, height = 110, unit = "mm")
 
 rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day)
 
@@ -180,7 +175,7 @@ no_eq <- diff_scores %>%
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year])) +
   scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
-                     labels = paste(c("", " ", ""), ana_models, "vs.", cmp_model)) +
+                     labels = paste(cmp_model, "vs.", ana_models)) +
   scale_y_continuous(labels = scientific) +
   xlab("") +
   ylab("Score") +
@@ -209,7 +204,7 @@ yes_eq <- diff_scores %>%
 
 stack_plots <- grid.arrange(no_eq, yes_eq, nrow = 1)
 file_path <- file.path(fpath, "Poster_Fig4.pdf")
-ggsave(file_path, width = 200, height = 110, unit = "mm", plot = stack_plots)
+ggsave(file_path, width = 250, height = 100, unit = "mm", plot = stack_plots)
 
 # and now spatially
 
@@ -222,12 +217,12 @@ diff_scores <- scores %>%
   mutate(LON = cells$LON, LAT = cells$LAT) %>%
   select(LON, LAT, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores$Model <- paste(diff_scores$Model, "vs.", cmp_model)
+diff_scores$Model <- paste(cmp_model, "vs.", diff_scores$Model)
 
 my_colors <- c("#ff9603", "#f51818", "#ffffff", "#057ffa")
 limits <- range(diff_scores$value)
-my_breaks <- c(-0.01, -0.001, 0, 0.001)
-my_labels <- c("-1e-2", "-1e-3", " 0", " 1e-3")
+my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
+my_labels <- c("-1e-2", "-1e-3", "-1e-4", " 0", " 1e-4", " 1e-3")
 
 # need log transform for positive and negative values (see ?modulus_trans)
 # but need to scale with d to get sufficient resolution
@@ -256,9 +251,9 @@ ggplot() +
   theme(legend.position = "right", strip.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig5.pdf")
-ggsave(file_path, width = 180, height = 80, unit = "mm")
+ggsave(file_path, width = 250, height = 105, unit = "mm")
 
-rm(scores, scores_acc, obs_acc, m_neigh, diff_scores, diff_scores_acc, combine)
+rm(scores, diff_scores)
 
 ################################################################################
 # Visualize reliability diagram
@@ -331,14 +326,14 @@ ggplot(recal_models, aes(x = x)) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram of Daily Forecasts") +
-  geom_text(data = collect_stats, mapping = aes(x = 0.08, y = 2.7, label = label),
-             size = 6*0.36, hjust = 0) +
+  geom_text(data = collect_stats, mapping = aes(x = 0.08, y = 3.5, label = label),
+             size = 8 * 0.36, hjust = 0) +
   theme_bw() +
   my_theme +
   theme(strip.background = element_blank(), aspect.ratio = 1)
 
 file_path <- file.path(fpath, "Poster_Fig6.pdf")
-ggsave(file_path, width = 180, height = 70, unit = "mm")
+ggsave(file_path, width = 250, height = 85, unit = "mm")
 
 rm(recal_models, collect_stats)
 
