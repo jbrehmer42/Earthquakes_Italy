@@ -7,8 +7,7 @@ library(gridExtra)        # grid.arrange : put ggplots next to each other
 library(monotone)         # for fast isotonic regression
 library(sf)               # st_as_sf : convert data.frame to geographic format sf
 library(rnaturalearth)    # ne_countries - to load country data
-library(scales)           # seq_gradient_pal - custom color gradients
-                          # trans_new - custom data transformation
+library(scales)           # trans_new - custom data transformation
 
 source("data_prep.R")
 source("functions_eval.R")
@@ -99,14 +98,11 @@ one_pred <- ggplot() +
   my_theme +
   theme(legend.position = "right", legend.title = element_text(size = 8))
 
-combine_plots <- grid.arrange(spat_distr, one_pred, nrow = 1)
-
 file_path <- file.path(fpath, "Poster_Fig1.pdf")
 ggsave(file_path, width = 110, height = 110, unit = "mm", plot = one_pred)
 
 rm(cells_and_events, events_by_cell, pred_one_day, spat_distr, mag_distr,
    one_pred)
-
 
 ################################################################################
 # Visualize Poisson Scores over time and score differences spatially
@@ -232,7 +228,7 @@ combine_plots <- grid.arrange(spat_plot, temp_plot, nrow = 2, heights = c(11, 6)
 file_path <- file.path(fpath, "Poster_Fig5.pdf")
 ggsave(file_path, width = 310, height = 170, unit = "mm", plot = combine_plots)
 
-rm(scores, diff_scores)
+rm(scores, diff_scores, combine_plots, spat_plot, temp_plot)
 
 ################################################################################
 # Visualize reliability diagram
@@ -276,15 +272,16 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
   low <- pmax(low, 1)
 
   jumps <- filter_jumps(x_rc)
-  collect_vals <- list(data.table(x = x[jumps], y = x_rc[jumps], I = "F"))
+  collect_vals <- list(data.table(x = x[jumps], y = x_rc[jumps], I = "Fit"))
 
   res <- y - x
   for (i in 2:n_samples) {
-    y <- pmax(0, x + sample(res, length(y), replace = TRUE))
+    y <- x + sample(res, length(y), replace = TRUE)
     ord <- order(x, y, decreasing = c(FALSE, TRUE))
     x_rc <- monotone(y[ord])
     jumps <- filter_jumps(x_rc)
-    collect_vals[[i]] <- data.table(x = x[jumps], y = x_rc[jumps], I = paste0("R", i))
+    collect_vals[[i]] <- data.table(x = x[jumps], y = pmax(0, x_rc[jumps]),
+                                    I = paste0("R", i))
   }
   # build joint data table with the collected values
   results <- do.call(rbind, collect_vals) %>%
@@ -310,33 +307,61 @@ collect_stats <- data.table()
 set.seed(999)
 
 for (i in 1:length(models)) {
-  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), n_resamples = 5)
+  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), n_resamples = 20)
   recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
   collect_stats <- rbind(
     collect_stats,
     cbind(Model = model_names[i], res$stats,
-          label = paste(names(res$stats), sprintf("%.2e", res$stats[1, ]),
+          label = paste(names(res$stats), c("", " ", " ", " "),
+                        sprintf("%.2e", res$stats[1, ]),
                         collapse = "\n"))
   )
 }
 
-d <- 10^7
+# now plot
+
+d <- 10^9
 my_trans <- trans_new(
   "log", function(x) sign(x) * log(abs(x) * d  + 1),
   function(y) sign(y) / d * (exp(abs(y)) - 1)
 )
 
-my_breaks <- c(0, 10^(-6:0))
-my_labels <- c("0", paste0("1e", -6:-1), "1")
-minor_breaks <- c(0, 10^(-7:0))
+my_breaks <- c(0, 10^c(-8, -6, -4, -2, 0))
+my_labels <- c("0", paste0("1e", c(-8, -6, -4, -2)), "1")
+minor_breaks <- c(0, 10^(-10:0))
 
-ggplot(recal_models, aes(x = x)) +
+# create inset-histograms
+inset_histograms <- list()
+for (i in 1:length(models)) {
+  xmin <- my_trans$transform(10^-4)
+  xmax <- my_trans$transform(0.5)
+  ymin <- my_trans$transform(10^-9)
+  ymax <- my_trans$transform(10^-6)
+
+  my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
+    geom_histogram(aes(x = x), fill = "gray", col = "black", size = 0.2,
+                   bins = 8, boundary = 0) +
+    theme_classic(base_size = 5.5) +
+    scale_x_continuous(trans = my_trans, breaks = c(0, 1)) +
+    theme(axis.line.y = element_blank(),
+          axis.text = element_blank(), axis.ticks = element_blank(),
+          axis.title = element_blank(), plot.background = element_blank(),
+          panel.background = element_blank(), panel.border = element_blank(),
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  inset_histograms[[i]] <- layer(
+    data = data.frame(Model = model_names[i], x = 0), stat = StatIdentity,
+    position = PositionIdentity, geom = GeomCustomAnn, inherit.aes = TRUE,
+    params = list(grob = ggplotGrob(my_hist), xmin = xmin, xmax = xmax,
+                  ymin = ymin, ymax = ymax))
+}
+
+main_plot <- ggplot(recal_models, aes(x = x)) +
   facet_wrap(~Model, nrow = 1) +
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = Model), alpha = 0.33,
               show.legend = FALSE) +
   geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
               linetype = "dashed") +
-  geom_line(aes(y = x_rc, color = Model), size = 0.3, show.legend = FALSE) +
+  geom_step(aes(y = x_rc, color = Model), size = 0.3, show.legend = FALSE) +
   scale_color_manual(values = model_colors) +
   scale_fill_manual(values = model_colors) +
   scale_x_continuous(trans = my_trans, breaks = my_breaks,
@@ -346,17 +371,15 @@ ggplot(recal_models, aes(x = x)) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram") +
-  geom_text(data = collect_stats, mapping = aes(x = 10^(-7), y = 0.02, label = label),
+  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.005, label = label),
             size = 8 * 0.36, hjust = 0, vjust = 0) +
   my_theme +
   theme(strip.background = element_blank(), aspect.ratio = 1)
 
-file_path <- file.path(fpath, "Poster_Fig6_new.pdf")
-ggsave(file_path, width = 310, height = 110, unit = "mm")
+combine_plots <- main_plot + inset_histograms
 
-for (i in 1:length(models)) {
-  hist(my_trans$transform(models[[i]]))
-}
+file_path <- file.path(fpath, "Poster_Fig6.pdf")
+ggsave(file_path, width = 310, height = 90, unit = "mm", plot = combine_plots)
 
 # for daily forecasts comparison with result from Jonas, use quadratic scoring fcn!
 
@@ -433,7 +456,7 @@ data.frame(murphy_df) %>%
         legend.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig7.pdf")
-ggsave(file_path, width = 110, height = 90, unit = "mm")
+ggsave(file_path, width = 110, height = 75, unit = "mm")
 
 data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
@@ -454,6 +477,6 @@ data.frame(murphy_df) %>%
         legend.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig7_Diff.pdf")
-ggsave(file_path, width = 110, height = 90, unit = "mm")
+ggsave(file_path, width = 110, height = 75, unit = "mm")
 
 rm(murphy_df)
