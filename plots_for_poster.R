@@ -275,12 +275,13 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
   collect_vals <- list(data.table(x = x[jumps], y = x_rc[jumps], I = "Fit"))
 
   res <- y - x
+  mean_res <- mean(res)
   for (i in 2:n_samples) {
     y <- x + sample(res, length(y), replace = TRUE)
     ord <- order(x, y, decreasing = c(FALSE, TRUE))
     x_rc <- monotone(y[ord])
     jumps <- filter_jumps(x_rc)
-    collect_vals[[i]] <- data.table(x = x[jumps], y = pmax(0, x_rc[jumps]),
+    collect_vals[[i]] <- data.table(x = x[jumps], y = pmax(0, x_rc[jumps] - mean_res),
                                     I = paste0("R", i))
   }
   # build joint data table with the collected values
@@ -289,7 +290,7 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
     arrange(x) %>%                  # sort x-value
     setnafill(type = "locf") %>%    # use last available observation to fill NA (step function!)
     apply(1, function(row) {
-      sorted <- sort(row[-1])
+      sorted <- sort(row[c(-1, -2)])
       c(row[1], row[2], sorted[low], sorted[up])
     }) %>% t() %>%  # apply writes results in columns
     as.data.table()
@@ -392,14 +393,15 @@ for (i in 1:length(models)) {
   collect_stats <- rbind(
     collect_stats,
     cbind(Model = model_names[i], res$stats,
-          label = paste(names(res$stats), format(res$stats[1,], digits = 3, nsmall = 3,
-                                                 scientific = TRUE),
+          label = paste(names(res$stats), c("", " ", " ", " "),
+                        sprintf("%.2e", res$stats[1, ]),
                         collapse = "\n"))
   )
 }
 
 ggplot(recal_models, aes(x = x)) +
-  facet_wrap(~Model, nrow = 1) +
+  facet_wrap(~factor(Model, ordered = TRUE, levels = c("LM", "FMC", "LG", "SMA")),
+                     nrow = 2) +
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = Model), alpha = 0.33,
               show.legend = FALSE) +
   geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
@@ -409,11 +411,16 @@ ggplot(recal_models, aes(x = x)) +
   scale_fill_manual(values = model_colors) +
   scale_x_log10() +
   scale_y_log10(limits = c(0.05, NA)) +
+  geom_text(data = collect_stats, mapping = aes(x = 0.2, y = 2.0, label = label),
+            size = 8 * 0.36, hjust = 0, vjust = 0) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram") +
   my_theme +
   theme(aspect.ratio = 1)
+
+ggsave("./../test/send2/reliability_daily.pdf", width = 150, height = 180,
+       unit = "mm")
 
 rm(recal_models, collect_stats)
 
