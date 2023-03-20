@@ -327,10 +327,6 @@ my_trans <- trans_new(
   function(y) sign(y) / d * (exp(abs(y)) - 1)
 )
 
-my_breaks <- c(0, 10^c(-8, -6, -4, -2, 0))
-my_labels <- c("0", paste0("1e", c(-8, -6, -4, -2)), "1")
-minor_breaks <- c(0, 10^(-10:0))
-
 # create inset-histograms
 inset_histograms <- list()
 for (i in 1:length(models)) {
@@ -339,9 +335,12 @@ for (i in 1:length(models)) {
   ymin <- my_trans$transform(10^-9)
   ymax <- my_trans$transform(10^-6)
 
+  my_breaks <- my_trans$inverse(seq(0, my_trans$transform(max(models[[1]])),
+                                    length.out = 9))
+
   my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
     geom_histogram(aes(x = x), fill = "gray", col = "black", size = 0.2,
-                   bins = 8, boundary = 0) +
+                   breaks = my_breaks) +
     theme_classic(base_size = 5.5) +
     scale_x_continuous(trans = my_trans, breaks = c(0, 1)) +
     theme(axis.line.y = element_blank(),
@@ -355,6 +354,10 @@ for (i in 1:length(models)) {
     params = list(grob = ggplotGrob(my_hist), xmin = xmin, xmax = xmax,
                   ymin = ymin, ymax = ymax))
 }
+
+my_breaks <- c(0, 10^c(-8, -6, -4, -2, 0))
+my_labels <- c("0", paste0("1e", c(-8, -6, -4, -2)), "1")
+minor_breaks <- c(0, 10^(-10:0))
 
 main_plot <- ggplot(recal_models, aes(x = x)) +
   facet_wrap(~Model, nrow = 1) +
