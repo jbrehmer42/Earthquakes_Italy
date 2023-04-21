@@ -425,6 +425,46 @@ ggplot(recal_models, aes(x = x)) +
 ggsave("./../test/send2/reliability_daily.pdf", width = 150, height = 180,
        unit = "mm")
 
+# recalibrate single cells: investigate cells with many earthquakes and cells with no
+# earthquakes
+
+y_ord <- order(colSums(obs))
+
+pick <- y_ord[floor(seq(1, length(y_ord), length.out = 5))][5]
+
+recal_models <- data.table()
+collect_stats <- data.table()
+
+for (i in 1:length(models)) {
+  res <- reldiag_cmp(models[[i]][, pick], obs[, pick], n_resamples = 999)
+  recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
+  collect_stats <- rbind(
+    collect_stats,
+    cbind(Model = model_names[i], res$stats,
+          label = paste(names(res$stats), c("", " ", " ", " "),
+                        sprintf("%.2e", res$stats[1, ]),
+                        collapse = "\n"))
+  )
+}
+
+ggplot(recal_models, aes(x = x)) +
+  facet_wrap(~factor(Model, ordered = TRUE, levels = c("LM", "FMC", "LG", "SMA")),
+                     nrow = 2, scales = "free") +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = Model), alpha = 0.33,
+              show.legend = FALSE) +
+  geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
+              linetype = "dashed") +
+  geom_line(aes(y = x_rc, color = Model), size = 0.3, show.legend = FALSE) +
+  scale_color_manual(values = model_colors) +
+  scale_fill_manual(values = model_colors) +
+  scale_x_log10() +
+  scale_y_log10() +
+  xlab("Forecasted mean") +
+  ylab("Conditional mean") +
+  ggtitle("Reliability Diagram") +
+  my_theme +
+  theme(aspect.ratio = 1)
+
 rm(recal_models, collect_stats)
 
 ################################################################################
