@@ -135,6 +135,25 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
 
 # recalibrate values ===========================================================
 
+# all values
+my_obs <- as.vector(obs)
+my_models <- lapply(models, as.vector)
+n_resamples <- 20
+# daily values
+my_obs <- rowSums(obs)
+my_models <- lapply(models, rowSums)
+n_resamples <- 5000
+# only use every 7-th value, as forecasts span 7-day periods
+mod <- 7      # use 1 to 7
+seventh <- 0:floor(nrow(obs) / 7)
+pick <- (7 * seventh + mod)[7 * seventh + mod <= nrow(obs)]
+weekday <- lubridate::wday(times[mod], label = T, abbr = F)
+
+my_obs <- as.vector(obs[pick, ])
+my_models <- lapply(models, function(x) as.vector(x[pick, ]))
+n_resamples <- 20
+
+
 reldiag_cmp <- compiler::cmpfun(reldiag)
 
 recal_models <- data.table()
@@ -143,20 +162,7 @@ collect_stats <- data.table()
 set.seed(999)
 
 for (i in 1:length(models)) {
-  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), n_resamples = 20)
-  recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
-  collect_stats <- rbind(
-    collect_stats,
-    cbind(Model = model_names[i], res$stats,
-          label = paste(names(res$stats), c("", " ", " ", " "),
-                        sprintf("%.2e", res$stats[1, ]),
-                        collapse = "\n"))
-  )
-}
-
-# use daily forecasts (later we have also to adapt empirical cdf calculation)
-for (i in 1:length(models)) {
-  res <- reldiag_cmp(rowSums(models[[i]]), rowSums(obs), n_resamples = 5000)
+  res <- reldiag_cmp(my_models[[i]], my_obs, n_resamples = n_resamples)
   recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
   collect_stats <- rbind(
     collect_stats,
@@ -175,16 +181,9 @@ collect_stats <- read.csv("./../tmp_results/collect_stats.csv")
 # use empirical CDF transform
 col_ecdfs <- list()
 for (i in 1:length(models)) {
-  t <- table(as.vector(models[[i]]))
+  t <- table(my_models[[i]])
   col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
-                               y = c(0, cumsum(as.numeric(t))) / prod(dim(models[[i]])),
-                               M = model_names[i])
-}
-# for daily forecasts
-for (i in 1:length(models)) {
-  t <- table(rowSums(models[[i]]))
-  col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
-                               y = c(0, cumsum(as.numeric(t))) / nrow(models[[i]]),
+                               y = c(0, cumsum(as.numeric(t))) / length(my_models[[i]]),
                                M = model_names[i])
 }
 
@@ -217,7 +216,7 @@ for (i in 1:length(models)) {
 
   my_breaks <- seq(0, 1, length.out = 9)
 
-  my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
+  my_hist <- ggplot(data.table(x = my_models[[i]])) +
     geom_histogram(aes(x = my_ecdf(x)), fill = "gray", col = "black", size = 0.2,
                    breaks = my_breaks) +
     theme_classic(base_size = 5.5) +
@@ -305,7 +304,7 @@ for (i in 1:length(models)) {
 
   my_breaks <- seq(0, 1, length.out = 9)
 
-  my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
+  my_hist <- ggplot(data.table(x = my_models[[i]])) +
     geom_histogram(aes(x = my_ecdf(x)), fill = "gray", col = "black", size = 0.2,
                    breaks = my_breaks) +
     theme_classic(base_size = 5.5) +
