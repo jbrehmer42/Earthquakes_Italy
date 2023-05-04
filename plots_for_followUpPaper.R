@@ -18,10 +18,16 @@ model_colors <- c("FMC" = "#F8766D", "LG" = "#00BA38", "SMA" = "#619CFF",
 
 fpath <- "./figures2"
 
+title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
+
 my_theme <- list(
   theme_bw() +
   theme(panel.grid.major = element_line(size = 0.05),
-        panel.grid.minor = element_line(size = 0.05))
+        panel.grid.minor = element_line(size = 0.05),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8),
+        plot.title = element_text(size = title_size),
+        strip.background = element_blank())
 )
 
 ################################################################################
@@ -54,15 +60,15 @@ eq_map <- ggplot() +
   geom_sf(data = st_as_sf(events, coords = c("LON", "LAT"), crs = 4326),
           aes(size = MAG, color = MAG), alpha = 0.6, shape = 13, stroke = 0.3) +
   coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
-  scale_x_continuous(name = NULL) +
+  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
   scale_y_continuous(name = NULL) +
   scale_color_gradient(low = m_low, high = m_high) +
   scale_size(range = new_range, trans = size_trans) +
   guides(color = "none", size = guide_legend(title = "Magnitude",
                                              override.aes = list(color = mag_colors))) +
-  ggtitle("M4+ Earthquakes") +
   my_theme +
-  theme(panel.background = element_rect(fill = rgb(0.012, 0.663, 0.988, 0.3)))
+  theme(panel.background = element_rect(fill = rgb(0.012, 0.663, 0.988, 0.3)),
+        legend.text = element_text(size = 7))
 
 my_breaks <- c(4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 10.0)
 eq_count <- events %>%
@@ -70,27 +76,32 @@ eq_count <- events %>%
   summarise(count = n(), .groups = "drop") %>%
   mutate(MAG = factor(my_breaks[MAG], ordered = T, levels = rev(my_breaks))) %>%
   ggplot() +
-  geom_col(aes(y = MAG, x = count, fill = MAG), show.legend = F) +
+  geom_col(aes(y = MAG, x = count, fill = MAG), alpha = 0.95, show.legend = F) +
   scale_fill_manual(values = setNames(mag_colors, my_breaks[-length(my_breaks)])) +
   scale_x_log10(name = "Count [log]") +
   scale_y_discrete(labels = NULL) +
   ylab(NULL) +
-  theme_classic(base_size = 6)
+  theme_classic(base_size = 8) +
+  theme(axis.title = element_text(size = 7), plot.background = element_blank())
 
 combine <- ggplot() +
   # set axis limits
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = F) +
   annotation_custom(ggplotGrob(eq_map), xmin = 0, xmax = 0.8, ymin = 0, ymax = 1) +
-  annotation_custom(ggplotGrob(eq_count), xmin = 0.75, xmax = 1, ymin = 0.2, ymax = 0.67) +
+  annotation_custom(ggplotGrob(eq_count), xmin = 0.75, xmax = 1, ymin = 0.21, ymax = 0.73) +
   theme(panel.background = element_rect("white"))
 
+finish <- grid.arrange(combine,
+                        top = textGrob("Earthquakes in Italy",
+                                       gp = gpar(fontsize = title_size)))
+
 file_path <- file.path(fpath, "Fig1_Earthquakes.pdf")
-ggsave(file_path, width = 140, height = 100, unit = "mm", plot = combine)
+ggsave(file_path, width = 140, height = 100, unit = "mm", plot = finish)
 
 rm(eq_map, eq_count, combine)
 
 ################################################################################
-# Figure 1b: Distribution of forecasts over time and space
+# Figure 2: Distribution of forecasts over time and space
 ################################################################################
 
 # first look at forecasts temporally
@@ -106,25 +117,23 @@ temp_plot <- pred_by_day %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
   ggplot() +
   geom_vline(data = filter(pred_by_day, earthquake),
-             aes(xintercept = X, linetype = "Obs.\nearthquakes"), size = 0.3,
-             color = "gray", alpha = 0.3) +
+             aes(xintercept = X, linetype = "Obs. earthquakes"), size = 0.3,
+             color = "gray", alpha = 0.2) +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = pred_by_day$X[new_year], labels = year(times[new_year])) +
   scale_y_log10() +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(override.aes = list(size = 0.5))) +
-  scale_linetype_manual(name = NULL, values = c("Obs.\nearthquakes" = 1),
+  scale_linetype_manual(name = NULL, values = c("Obs. earthquakes" = 1),
                         guide = guide_legend(override.aes = list(alpha = 1, size = 0.5))) +
   xlab(NULL) +
   ylab("Predicted mean") +
-  ggtitle("For all of Italy") +
+  labs(subtitle = "For all of Italy") +
   annotate(geom = "text", label = "(*)", x = i_time, y = 0.15, size = 3,
            color = "black") +
   theme_bw() +
   my_theme +
-  theme(legend.position = "right", legend.box = "vertical",
-        legend.text = element_text(size = 8), legend.background = element_blank(),
-        plot.title = element_text(size = 12), plot.margin = margin(5.5, 5.5, 0.0, 3.0))
+  theme(legend.position = "bottom", legend.margin = margin(0, 5.5, 5.5, 5.5))
 
 # now look at forecasts spatially
 pred_one_day <- data.frame(do.call(cbind, lapply(models, function(m) m[i_time,]))) %>%
@@ -148,32 +157,33 @@ spat_plot <- ggplot() +
   geom_tile(data = pred_by_cell_long, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
           size = 0.2, fill = NA) +
-  geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs.\nearthquakes"), fill = NA) +
+  geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs. earthquakes"), fill = NA) +
   coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
-  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
+  scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_viridis_c(name = "Predicted mean",
-                       breaks = 10^(c(-9, -7, -5, -3)), labels = paste0("e", c(-9, -7, -5, -3)),
+                       breaks = 10^(c(-9, -7, -5, -3)),
+                       labels = expression(e^-9, e^-7, e^-5, e^-3),
                        trans = "log10", option = "magma",
                        guide = guide_colorbar(title.vjust = 0.5, order = 1)) +
-  scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs.\nearthquakes" = "black"),
+  scale_color_manual(name = "Obs. earthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"),
                                           title.vjust = 0.6, order = 2)) +
-  ggtitle("For a single day (*)") +
+  labs(subtitle = "For the 7-day Period Following (*)") +
   theme_bw() +
   my_theme +
-  theme(legend.position = "right", strip.background = element_blank(),
-        legend.title = element_text(size = 8), legend.box.just = "left",
-        plot.title = element_text(size = 12), plot.margin = margin(5.5, 15.5, 5.5, 9))
+  theme(legend.position = "bottom", legend.box.just = "left",
+        plot.margin = margin(2.5, 5.5, 5.5, 10.5),
+        legend.margin = margin(0, 5.5, 5.5, 5.5))
 
 combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.45, 0.55),
                         top = textGrob("Predicted Mean Number of Events",
-                                       gp = gpar(fontsize=15)))
+                                       gp = gpar(fontsize = title_size)))
 
-file_path <- file.path(fpath, "Fig1b_Forecasts.pdf")
-ggsave(file_path, width = 220, height = 145, unit = "mm", plot = combine)
+file_path <- file.path(fpath, "Fig2_Forecasts.pdf")
+ggsave(file_path, width = 145, height = 138, unit = "mm", plot = combine)
 
 rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day, temp_plot,
    spat_plot, combine)
@@ -254,8 +264,7 @@ single_cells <- ggplot(cbind(diff_scores, R = "")) +
                        values = rescale(col_breaks_1)) +
   theme_bw() +
   my_theme +
-  theme(legend.position = "right", strip.background = element_blank(),
-        legend.title = element_text(size = 8), axis.text.x = element_blank())
+  theme(legend.position = "right", axis.text.x = element_blank())
 
 limits <- range(diff_scores_acc$value)
 col_breaks_2 <- c(limits[1], -limits[2], 0, limits[2])
@@ -272,15 +281,15 @@ acc_cells <- ggplot(cbind(diff_scores_acc, R = "Agg. cells with a radius of 2"))
                        values = rescale(col_breaks_1)) +
   theme_bw() +
   my_theme +
-  theme(legend.position = "right", strip.background = element_blank(),
-        strip.text.x = element_blank(), plot.margin = margin(5.5, 5.5, 5.5, 12))
+  theme(legend.position = "right", strip.text.x = element_blank(),
+        plot.margin = margin(5.5, 5.5, 5.5, 12))
 
 combine <- grid.arrange(single_cells, acc_cells, nrow = 2,
                         top = textGrob("Mean Poisson Score Difference",
                                        gp = gpar(fontsize=15)))
 
 file_path <- file.path(fpath, "Fig5_spatialScoreDifferences.pdf")
-ggsave(file_path, width = 220, height = 160, unit = "mm", plot = combine)
+ggsave(file_path, width = 190, height = 160, unit = "mm", plot = combine)
 
 rm(diff_scores, m_neigh, obs_acc, scores_acc, diff_scores_acc)
 
@@ -333,16 +342,13 @@ spat_plot <- ggplot() +
   scale_fill_gradientn(name = "Score\ndifference",
                        trans = my_trans, colors = my_colors, values = rescale(col_breaks),
                        breaks = my_breaks, labels = my_labels) +
-  ggtitle("Average Poisson Score Differences") +
   scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"))) +
   theme_bw() +
   my_theme +
-  theme(legend.position = "right", strip.background = element_blank(),
-        legend.title = element_text(size = 8),
-        plot.margin = margin(5.5, 5.5, 5.5, 27))
+  theme(legend.position = "right", plot.margin = margin(5.5, 5.5, 5.5, 27))
 
 # and now temporally
 
@@ -377,24 +383,307 @@ temp_plot <- ggplot(diff_scores) +
                      limits = c(0, nrow(scores))) +
   scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
                      labels = paste(cmp_model, "vs.", ana_models),
-                     guide = guide_legend(order = 1, label.position = "top")) +
-  scale_linetype_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = 1),
-                        labels = "",
+                     guide = guide_legend(order = 1, direction = "horizontal")) +
+  scale_linetype_manual(name = NULL, values = c("Obs. earthquakes" = 1),
+                        labels = "Obs. earthquakes",
                         guide = guide_legend(override.aes = list(alpha = 1, size = 0.4),
-                                             order = 2)) +
+                                             order = 2, direction = "horizontal")) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
   xlab(NULL) +
-  ylab("log-transformed score") +
+  ylab("score difference") +
   ggtitle(NULL) +
   my_theme +
-  theme(legend.position = "right", legend.title = element_text(size = 8),
-        legend.text = element_text(size = 8),
-        plot.margin = margin(5.5, 5.5, 5.5, 5.5))
+  theme(legend.position = "bottom",
+        legend.box = "horizontal", plot.margin = margin(5.5, 70, 5.5, 5.5))
 
-combine_plots <- grid.arrange(spat_plot, temp_plot, nrow = 2, heights = c(0.65, 0.35))
+combine_plots <- grid.arrange(spat_plot, temp_plot, nrow = 2, heights = c(0.55, 0.45),
+                              top = textGrob("Average Poisson Score Differences",
+                                             gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig5_ScoreDifferences.pdf")
-ggsave(file_path, width = 220, height = 155, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 190, height = 150, unit = "mm", plot = combine_plots)
 
 rm(scores, diff_scores, combine_plots, spat_plot, temp_plot)
+
+################################################################################
+# Poisson Score: Number and spatial component
+################################################################################
+
+# score of predicted number of earthquakes in all of Italy
+scores_n <- do.call(
+  cbind, lapply(models, function(X) S_pois(rowSums(X), rowSums(obs)))
+)
+scores_n <- data.frame(scores_n)
+colnames(scores_n) <- model_names
+
+diff_scores <- scores_n %>%
+  mutate(X = 1:nrow(.)) %>%
+  filter(rowSums(obs) > 0) %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  select(X, all_of(ana_models)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model")
+
+number_plot <- ggplot(diff_scores) +
+  geom_point(aes(x = X, y = value, color = Model), size = 0.75) +
+  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  scale_x_continuous(breaks = which(new_year), labels = year(times[new_year]),
+                     limits = c(0, nrow(scores_n))) +
+  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
+                     labels = paste(cmp_model, "vs.", ana_models)) +
+  scale_y_continuous(limits = c(-20, NA)) +
+  xlab(NULL) +
+  ylab(NULL) +
+  labs(subtitle = "Number component") +
+  my_theme +
+  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0),
+        plot.margin = margin(5.5, 5.5, 5.5, 5.5))
+
+# score of normalized mean predicted number of earthquakes
+scores_s <- do.call(
+  cbind, lapply(models, function(X) {
+    row_sums <- rowSums(X)
+    X_norm <- apply(X, 2, function(col) col / row_sums)
+    return(rowSums(S_pois(X_norm, obs)))
+  })
+)
+scores_s <- data.frame(scores_s)
+colnames(scores_s) <- model_names
+
+diff_scores <- scores_s %>%
+  mutate(X = 1:nrow(.)) %>%
+  filter(rowSums(obs) > 0) %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  select(X, all_of(ana_models)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model")
+
+spatial_plot <- ggplot(diff_scores) +
+  geom_point(aes(x = X, y = value, color = Model), size = 0.75, show.legend = F) +
+  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  scale_x_continuous(breaks = which(new_year), labels = year(times[new_year]),
+                     limits = c(0, nrow(scores_s))) +
+  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
+                     labels = paste(cmp_model, "vs.", ana_models)) +
+  scale_y_continuous(limits = c(-20, NA)) +
+  xlab(NULL) +
+  ylab(NULL) +
+  labs(subtitle = "Spatial component") +
+  my_theme +
+  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0),
+        plot.margin = margin(5.5, 5.5, 5.5, 5.5))
+
+combine_plots <- grid.arrange(number_plot, spatial_plot, nrow = 2,
+                              top = textGrob("Daily Poisson Score Differences",
+                                             gp = gpar(fontsize = title_size)),
+                              left = textGrob("Score difference", rot = 90,
+                                              gp = gpar(fontsize = 11)))
+
+file_path <- file.path(fpath, "Fig4_NumberSpatials.pdf")
+ggsave(file_path, width = 145, height = 140, unit = "mm", plot = combine_plots)
+
+rm(scores_n, diff_scores, number_plot, scores_s, diff_scores, spatial_plot,
+   combine_plots)
+
+################################################################################
+# Murphy diagramm
+################################################################################
+
+################################################################################
+# Reliability diagramm
+################################################################################
+
+reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
+  ord <- order(x, y, decreasing = c(FALSE, TRUE))
+  x <- x[ord]
+  y <- y[ord]
+
+  # we can compress step function by only storing first value and jumps!
+  filter_jumps <- function(v) return(c(T, v[-1] - v[-length(v)] > 0))
+
+  score <- my_s_pois
+  # score <- function(x, y) mean(S_quad(x, y))
+
+  x_rc <- monotone(y)
+  s <- score(x,y)
+  s_rc <- score(x_rc, y)
+  s_mg <- score(mean(y), y)
+
+  mcb <- s - s_rc
+  dsc <- s_mg - s_rc
+  unc <- s_mg
+
+  n_samples <- n_resamples + 1 # total number of samples including observed sample
+  low <- floor(n_samples * (1 - region_level) / 2)
+  up <- n_samples - low
+  low <- pmax(low, 1)
+
+  jumps <- filter_jumps(x_rc)
+  collect_vals <- list(data.table(x = x[jumps], y = x_rc[jumps], I = "Fit"))
+
+  t <- table(y) / length(y)
+  vals <- as.numeric(names(t))
+  f_y <- as.numeric(t)
+  eps <- sum(f_y[-1] * vals[-1]) / x - 1
+  n_split <- 5      # as not everything fits into memory, split
+  split <- ceiling(seq(1, length(y), length.out = n_split))
+  cmp <- matrix(rep(cumsum(f_y[-length(f_y)]), split[2] - split[1] + 1),
+                ncol = length(f_y) - 1, byrow = T)
+  for (i in 2:n_samples) {
+    for (j in 2:n_split) {
+      i_vec <- split[j - 1]:split[j]
+      u <- runif(length(i_vec), 0, 1 + eps[i_vec])
+      y[i_vec] <- rowSums(u - eps[i_vec] >= cmp[1:pmin(length(i_vec), nrow(cmp)), ])
+    }
+    ord <- order(x, y, decreasing = c(FALSE, TRUE))
+    x_rc <- monotone(y[ord])
+    jumps <- filter_jumps(x_rc)
+    collect_vals[[i]] <- data.table(x = x[jumps], y = x_rc[jumps],
+                                    I = paste0("R", i))
+  }
+  # build joint data table with the collected values
+  results <- do.call(rbind, collect_vals) %>%
+    pivot_wider(id_cols = x, values_from = y, names_from = I, values_fill = NA) %>%
+    arrange(x) %>%                  # sort x-value
+    setnafill(type = "locf") %>%    # use last available observation to fill NA (step function!)
+    apply(1, function(row) {
+      sorted <- sort(row[c(-1, -2)])
+      c(row[1], row[2], sorted[low], sorted[up])
+    }) %>% t() %>%  # apply writes results in columns
+    as.data.table()
+
+  colnames(results) <- c("x", "x_rc", "lower", "upper")
+  stats <- data.frame(Score = s, MCB = mcb, DSC = dsc, UNC = unc)
+  return(list(results = results, stats = stats))
+}
+
+reldiag_cmp <- compiler::cmpfun(reldiag)
+
+recal_models <- data.table()
+collect_stats <- data.table()
+
+set.seed(999)
+
+for (i in 1:length(models)) {
+  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), n_resamples = 20)
+  recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
+  collect_stats <- rbind(
+    collect_stats,
+    cbind(Model = model_names[i], res$stats,
+          label = paste(names(res$stats), c("", " ", " ", " "),
+                        sprintf("%.2e", res$stats[1, ]),
+                        collapse = "\n"))
+  )
+}
+
+# or load already recalibrated values
+recal_models <- read.csv("./../tmp_results/recal_models_100_bag-Tilmann.csv")
+collect_stats <- read.csv("./../tmp_results/collect_stats.csv")
+
+col_ecdfs <- list()
+for (i in 1:length(models)) {
+  t <- table(as.vector(models[[i]]))
+  col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
+                               y = c(0, cumsum(as.numeric(t))) / prod(dim(models[[i]])),
+                               M = model_names[i])
+}
+
+collect_recal_plots <- list()
+
+# for non-aggregated data
+breaks_x <- list(c(0, 10^c(-5, 0)), c(0, 10^c(-6, -5, 0)),
+                 c(0, 10^c(-6, -5, 0)), c(0, 10^c(-5, 0)))
+breaks_y <- list(c(0, 10^c(-6, -5, -4, 0)), c(0, 10^c(-8, -7, -6, -5, -4, 0)),
+                 c(0, 10^c(-6, -5, 0)), c(0, 10^c(-6, -5, -4, 0)))
+my_labeller <- function(l) {
+  labels <- character(length(l))
+  labels[l > 0 & l < 1] <- paste0("1e", log(l[l > 0 & l < 1], base = 10))
+  labels[l == 1] <- "1"
+  labels[l == 0] <- "0"
+  return(labels)
+}
+
+
+for (i in 1:length(models)) {
+  mean_ecdf <- col_ecdfs[[i]] %>%
+    slice(floor(seq(1, nrow(.), length.out = min(nrow(.), 10^5)))) %>%   # sample on grid for plotting
+    select(x, y)
+
+  my_ecdf <- function(x) {
+    # first known values, then values we want to evaluate --> fill with last observation
+    rbind(cbind(mean_ecdf, a = -1.0), data.table(x = x, y = NA, a = 1:length(x))) %>%
+      arrange(x) %>%
+      setnafill(type = "locf") %>%
+      filter(a > 0) %>%
+      arrange(a) %>%
+      pull(y)
+  }
+
+  xmin <- 0.7
+  xmax <- 1.0
+  ymin <- 0.0
+  ymax <- 0.25
+
+  my_breaks <- seq(0, 1, length.out = 9)
+
+  my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
+    geom_histogram(aes(x = my_ecdf(x)), fill = "gray", col = "black", size = 0.2,
+                   breaks = my_breaks) +
+    theme_classic(base_size = 5.5) +
+    theme(axis.line.y = element_blank(),
+          axis.text = element_blank(), axis.ticks = element_blank(),
+          axis.title = element_blank(), plot.background = element_blank(),
+          panel.background = element_blank(), panel.border = element_blank(),
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  inset_histograms <- layer(
+    data = data.frame(Model = model_names[i], x = 0), stat = StatIdentity,
+    position = PositionIdentity, geom = GeomCustomAnn, inherit.aes = TRUE,
+    params = list(grob = ggplotGrob(my_hist), xmin = xmin, xmax = xmax,
+                  ymin = ymin, ymax = ymax))
+
+  t_breaks_y <- my_ecdf(breaks_y[[i]])
+  labels_y <- my_labeller(breaks_y[[i]])
+  t_breaks_x <- my_ecdf(breaks_x[[i]])
+  labels_x <- my_labeller(breaks_x[[i]])
+  minor_breaks <- my_ecdf(c(0, 10^(-10:0)))
+
+  main_plot <- ggplot(filter(recal_models, Model == model_names[i]),
+                      aes(x = my_ecdf(x))) +
+    facet_wrap(~Model, nrow = 1) +
+    geom_ribbon(aes(ymin = my_ecdf(lower), ymax = my_ecdf(upper), fill = Model),
+                alpha = 0.33, show.legend = FALSE) +
+    geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
+                linetype = "dashed") +
+    geom_step(aes(y = my_ecdf(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
+    scale_color_manual(values = model_colors) +
+    scale_fill_manual(values = model_colors) +
+    scale_x_continuous(breaks = t_breaks_x, labels = labels_x, minor_breaks = minor_breaks) +
+    scale_y_continuous(breaks = t_breaks_y, labels = labels_y, minor_breaks = minor_breaks) +
+    xlab(NULL) +
+    ylab(NULL) +
+    ggtitle(NULL) +
+    geom_text(data = filter(collect_stats, Model == model_names[i]),
+              mapping = aes(x = 0.05, y = 0.75, label = label),
+              size = 8 * 0.36, hjust = 0, vjust = 0) +
+    theme_bw() +
+    my_theme +
+    theme(aspect.ratio = 1)
+
+  collect_recal_plots[[i]] <- main_plot + inset_histograms
+}
+
+combine <- grid.arrange(collect_recal_plots[[2]],
+                        collect_recal_plots[[3]],
+                        collect_recal_plots[[1]],
+                        collect_recal_plots[[4]],
+                        nrow = 2,
+                        top = textGrob("Reliability Diagram",
+                                       gp = gpar(fontsize = title_size)),
+                        bottom = textGrob("Forecasted mean",
+                                       gp = gpar(fontsize = 11)),
+                        left = textGrob("Conditional mean", rot = 90,
+                                       gp = gpar(fontsize = 11)))
+
+file_path <- file.path(fpath, "Fig7_ReliabilityDiagram.pdf")
+ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine)
+
+rm(combine, collect_recal_plots, col_ecdfs, collect_stats, recal_models)
