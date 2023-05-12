@@ -12,9 +12,14 @@ library(scales)           # trans_new - custom data transformation
                           # seq_gradient_pal - custom color gradient
 
 source("data_prep.R")
+source("functions_eval.R")
 
 model_colors <- c("FMC" = "#F8766D", "LG" = "#00BA38", "SMA" = "#619CFF",
                   "LM" = "#DB72FB")
+
+cmp_model <- "LM"
+cmp_m <- sym(cmp_model)
+ana_models <- model_names[model_names != cmp_model]
 
 fpath <- "./figures2"
 
@@ -29,6 +34,29 @@ my_theme <- list(
         plot.title = element_text(size = title_size),
         strip.background = element_blank())
 )
+
+# handle zero forecast specifically
+s_pois <- function(X, Y) {
+  zero_fcst <- X == 0
+  impossible_fcst <- (X == 0) & (Y != 0)
+  score <- -Y * log(X) + X
+  score[zero_fcst] <- 0
+  score[impossible_fcst] <- Inf
+  return(score)
+}
+
+s_pois_da <- function(X, Y) {
+  zero_fcst <- X == 0
+  impossible_fcst <- (X == 0) & (Y != 0)
+  score <- -Y * log(X) + X
+  score[zero_fcst] <- 0
+  score[impossible_fcst] <- Inf
+  return(sum(score) / n_days)
+}
+
+s_quad_da <- function(X, Y) {
+  return(sum((X - Y)^2) / n_days)
+}
 
 ################################################################################
 # Figure 1: Distribution of earthquakes
@@ -163,7 +191,7 @@ spat_plot <- ggplot() +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_viridis_c(name = "Predicted mean",
                        breaks = 10^(c(-9, -7, -5, -3)),
-                       labels = expression(e^-9, e^-7, e^-5, e^-3),
+                       labels = paste0("1e", c(-9, -7, -5, -3)),
                        trans = "log10", option = "magma",
                        guide = guide_colorbar(title.vjust = 0.5, order = 1)) +
   scale_color_manual(name = "Obs. earthquakes", values = c("Obs. earthquakes" = "black"),
@@ -189,24 +217,62 @@ rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day, temp_plot,
    spat_plot, combine)
 
 ################################################################################
+# Tables: Calculate Scores
+################################################################################
+
+# Table 1: Overall quadratic and Poisson score and its number and spatial component
+t1 <- matrix(NA, nrow = length(models), ncol = 4)
+rownames(t1) <- model_names
+colnames(t1) <- c("quad", "Poisson", "number", "spatial")
+
+for (i in 1:length(models)) {
+  x_t <- rowSums(models[[i]])
+  t1[i, "quad"] <- s_quad_da(models[[i]], obs)
+  t1[i, "Poisson"] <- s_pois_da(models[[i]], obs)
+  t1[i, "number"] <- mean(s_pois(x_t, rowSums(obs)))
+  t1[i, "spatial"] <- mean(rowSums(s_pois(models[[i]] / x_t, obs)))
+}
+t1
+write.csv(t1, "./../tmp_results/Table1.csv")
+
+# Table 2: Overall quadratic and Poisson score and its MSB, DSC, and UNC component
+t2 <- matrix(NA, nrow = length(models), ncol = 8)
+rownames(t2) <- model_names
+colnames(t2) <- c("quad", "q-MCB", "q-DSC", "q-UNC", "pois", "p-MCB", "p-DSC",
+                  "p-UNC")
+
+# we get different scores due to sorting and summing up in a different order?
+
+y <- as.vector(obs)
+mean_y <- mean(y)
+for (i in 1:length(models)) {
+  # recalibrate forecasts x with isotoinc regression from monotone package
+  x <- as.vector(models[[i]])
+  ord <- order(x, y, decreasing = c(FALSE, TRUE))
+  x <- x[ord]
+  y <- y[ord]
+  x_rc <- monotone(y)
+
+  j <- 1
+  for (scf in list(s_quad_da, s_pois_da)) {
+    s <- scf(x, y)
+    s_rc <- scf(x_rc, y)
+    s_mg <- scf(mean_y, y)
+    t2[i, j] <- s
+    t2[i, j + 1] <- s - s_rc
+    t2[i, j + 2] <- s_mg - s_rc
+    t2[i, j + 3] <- s_mg
+    j <- j + 4
+  }
+}
+t2
+write.csv(t1, "./../tmp_results/Table2.csv")
+
+################################################################################
 # Figure 5: Poisson Score over days for each grid cell
 ################################################################################
 
-# handle zero forecast specifically
-S_pois <- function(X, Y) {
-  zero_fcst <- X == 0
-  impossible_fcst <- (X == 0) & (Y != 0)
-  score <- -Y * log(X) + X
-  score[zero_fcst] <- 0
-  score[impossible_fcst] <- Inf
-  return(score)
-}
-
-cmp_model <- "LM"
-cmp_m <- sym(cmp_model)
-ana_models <- model_names[model_names != cmp_model]
-
-scores <- do.call(cbind, lapply(models, function(X) colMeans(S_pois(X, obs))))
+scores <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X, obs))))
 scores <- data.frame(scores)
 colnames(scores) <- model_names
 
@@ -237,7 +303,7 @@ m_neigh <- neigh_mat(cells, 2, function(x, y) abs(x - y))
 # m_neigh <- neigh_mat(cells, 2, function(x, y) (x - y)^2, function(x, y) sqrt(x + y))
 obs_acc <- obs %*% m_neigh
 
-scores_acc <- do.call(cbind, lapply(models, function(X) colMeans(S_pois(X %*% m_neigh, obs_acc))))
+scores_acc <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X %*% m_neigh, obs_acc))))
 scores_acc <- data.frame(scores_acc)
 colnames(scores_acc) <- model_names
 
@@ -297,7 +363,7 @@ rm(diff_scores, m_neigh, obs_acc, scores_acc, diff_scores_acc)
 # Visualize Poisson Scores over time and score differences spatially
 ################################################################################
 
-scores <- do.call(cbind, lapply(models, function(X) colMeans(S_pois(X, obs))))
+scores <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X, obs))))
 scores <- data.frame(scores)
 colnames(scores) <- model_names
 
@@ -311,7 +377,7 @@ diff_scores$Model <- paste(cmp_model, "vs.", diff_scores$Model)
 my_colors <- c("#800303", "#f51818", "#ffffff", "#057ffa")
 limits <- range(diff_scores$value)
 my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
-my_labels <- c("-1e-2", "-1e-3", "-1e-4", " 0", " 1e-4", " 1e-3")
+my_labels <- c("-1e-2", "", "-1e-4", "0", "1e-4", "")
 
 # need log transform for positive and negative values (see ?modulus_trans)
 # but need to scale with d to get sufficient resolution
@@ -341,18 +407,26 @@ spat_plot <- ggplot() +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_gradientn(name = "Score\ndifference",
                        trans = my_trans, colors = my_colors, values = rescale(col_breaks),
-                       breaks = my_breaks, labels = my_labels) +
+                       breaks = my_breaks, labels = my_labels, minor_breaks = my_mbreaks,
+                       guide = guide_colorbar(barwidth = unit(40, "mm"),
+                                              title.vjust = 0.9)) +
   scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"))) +
   theme_bw() +
   my_theme +
-  theme(legend.position = "right", plot.margin = margin(5.5, 5.5, 5.5, 27))
+  theme(legend.position = "bottom")
+
+combine_plots <- grid.arrange(spat_plot, nrow = 1,
+                              top = textGrob("Average Poisson Score Differences by Grid Cell",
+                                             gp = gpar(fontsize = title_size)))
+file_path <- file.path(fpath, "Fig6_ScoreDiffSpat.pdf")
+ggsave(file_path, width = 145, height = 90, unit = "mm", plot = combine_plots)
 
 # and now temporally
 
-scores <- do.call(cbind, lapply(models, function(X) rowMeans(S_pois(X, obs))))
+scores <- do.call(cbind, lapply(models, function(X) rowSums(s_pois(X, obs))))
 scores <- data.frame(scores) %>%
   mutate(X = 1:nrow(.), earthquake = rowSums(obs) != 0)
 colnames(scores) <- c(model_names, "X", "earthquake")
@@ -364,26 +438,27 @@ diff_scores <- scores %>%
 
 new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
-d2 <- 10^7
+d2 <- 10^3
 my_trans2 <- trans_new(
   "log", function(x) sign(x) * log(abs(x) * d2  + 1),
   function(y) sign(y) / d2 * (exp(abs(y)) - 1)
 )
-my_breaks <- c(-10^(c(-2, -4, -6)), 0, 10^(c(-6, -4)))
-minor_breaks <- c(-10^(-2:-7), 0, 10^(-7:-3))
-my_labels <- c(paste("-1e-", c(2, 4, 6)), "0", paste("1e-", c(6, 4)))
+my_breaks <- c(-10^(c(2, 0, -2)), 0, 10^(c(-2, 0)))
+minor_breaks <- c(-10^(2:-3), 0, 10^(-3:1))
+my_labels <- c("-1e2", "-1", "-1e-2", "0", "1e-2", "1")
 
 temp_plot <- ggplot(diff_scores) +
   geom_vline(data = filter(diff_scores, earthquake > 0),
              aes(xintercept = X, linetype = "Obs. earthquakes"),
              alpha = 0.3, color = "gray", size = 0.3) +
-  geom_line(aes(x = X, y = value, color = Model), size = 0.4) +
+  geom_point(aes(x = X, y = value, color = Model), size = 0.3, alpha = 0.5) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
   scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
                      labels = paste(cmp_model, "vs.", ana_models),
-                     guide = guide_legend(order = 1, direction = "horizontal")) +
+                     guide = guide_legend(order = 1, direction = "horizontal",
+                                          override.aes = list(alpha = 1))) +
   scale_linetype_manual(name = NULL, values = c("Obs. earthquakes" = 1),
                         labels = "Obs. earthquakes",
                         guide = guide_legend(override.aes = list(alpha = 1, size = 0.4),
@@ -391,18 +466,16 @@ temp_plot <- ggplot(diff_scores) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
   xlab(NULL) +
-  ylab("score difference") +
+  ylab("Score difference") +
   ggtitle(NULL) +
   my_theme +
-  theme(legend.position = "bottom",
-        legend.box = "horizontal", plot.margin = margin(5.5, 70, 5.5, 5.5))
+  theme(legend.position = "bottom", legend.box = "horizontal",)
 
-combine_plots <- grid.arrange(spat_plot, temp_plot, nrow = 2, heights = c(0.55, 0.45),
-                              top = textGrob("Average Poisson Score Differences",
+combine_plots <- grid.arrange(temp_plot, nrow = 1,
+                              top = textGrob("Poisson Score Differences By Day",
                                              gp = gpar(fontsize = title_size)))
-
-file_path <- file.path(fpath, "Fig5_ScoreDifferences.pdf")
-ggsave(file_path, width = 190, height = 150, unit = "mm", plot = combine_plots)
+file_path <- file.path(fpath, "Fig4_ScoreDiffTemp.pdf")
+ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine_plots)
 
 rm(scores, diff_scores, combine_plots, spat_plot, temp_plot)
 
@@ -412,7 +485,7 @@ rm(scores, diff_scores, combine_plots, spat_plot, temp_plot)
 
 # score of predicted number of earthquakes in all of Italy
 scores_n <- do.call(
-  cbind, lapply(models, function(X) S_pois(rowSums(X), rowSums(obs)))
+  cbind, lapply(models, function(X) s_pois(rowSums(X), rowSums(obs)))
 )
 scores_n <- data.frame(scores_n)
 colnames(scores_n) <- model_names
@@ -444,7 +517,7 @@ scores_s <- do.call(
   cbind, lapply(models, function(X) {
     row_sums <- rowSums(X)
     X_norm <- apply(X, 2, function(col) col / row_sums)
-    return(rowSums(S_pois(X_norm, obs)))
+    return(rowSums(s_pois(X_norm, obs)))
   })
 )
 scores_s <- data.frame(scores_s)
@@ -478,15 +551,134 @@ combine_plots <- grid.arrange(number_plot, spatial_plot, nrow = 2,
                               left = textGrob("Score difference", rot = 90,
                                               gp = gpar(fontsize = 11)))
 
-file_path <- file.path(fpath, "Fig4_NumberSpatials.pdf")
-ggsave(file_path, width = 145, height = 140, unit = "mm", plot = combine_plots)
+file_path <- file.path(fpath, "Fig5_NumberSpatials.pdf")
+ggsave(file_path, width = 145, height = 135, unit = "mm", plot = combine_plots)
 
-rm(scores_n, diff_scores, number_plot, scores_s, diff_scores, spatial_plot,
-   combine_plots)
+rm(scores_n, diff_scores, number_plot, scores_s, spatial_plot, combine_plots)
 
 ################################################################################
 # Murphy diagramm
 ################################################################################
+
+S_elem <- compiler::cmpfun(S_theta)
+
+n_theta <- 100
+log_grid <- seq(-24, 4, len = n_theta)
+grd <- exp(log_grid)
+
+# use for loops, as otherwise memory demand is too high
+# Jonas calculates each row separately, it seems faster? check it!
+murphy_df <- matrix(0, nrow = length(grd), ncol = length(models))
+for (m in 1:length(models)) {
+  print(m)
+  for (t in 1:n_theta) {
+    cat("*")
+    murphy_df[t, m] <- S_elem(models[[m]], obs, grd[t])
+  }
+}
+colnames(murphy_df) <- model_names
+
+# S_theta sums, but we want daily averages
+murphy_df <- murphy_df / nrow(obs)
+
+# or read it in
+murphy_df <- read.csv("./../tmp_results/murphy_df.csv")
+
+murphy_diag <- data.frame(murphy_df) %>%
+  mutate(theta = log_grid) %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  select(theta, all_of(ana_models)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model") %>%
+  ggplot() +
+  geom_line(aes(x = theta, y = value, color = Model), size = 0.3) +
+  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
+                     labels = paste(cmp_model, "vs.", ana_models)) +
+  xlab(expression(paste("Threshold log", theta))) +
+  ylab("Elementary score") +
+  my_theme +
+  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0),
+        legend.background = element_blank())
+
+combine <- grid.arrange(murphy_diag, nrow = 1,
+                        top = textGrob("Murphy Difference Diagram",
+                                       gp = gpar(fontsize = title_size)))
+
+file_path <- file.path(fpath, "Fig7_MurphyDiag.pdf")
+ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine)
+
+# now look at Murphy diagram of miscalibration and discrimination component
+MCB_diag <- DSC_diag <- matrix(0, ncol = n_mods, nrow = n_theta)
+for (i in 1:n_mods) {
+  print(i)
+  decomp <- cell_decomposition(models[[i]], obs, theta = grd)
+  # decomp <- day_decomposition(models[[i]], obs, theta = grd) # in helpful_routines.R
+  MCB_diag[ ,i] <- rowSums(decomp$MCB)
+  DSC_diag[ ,i] <- rowSums(decomp$DSC)
+}
+UNC_diag <- rowSums(decomp$UNC)
+
+# alternatively: recalibrate everything at once
+UNC_diag <- numeric(length(grd))
+
+for (i in 1:n_mods) {
+  print(i)
+  # recalibrate forecasts x with isotoinc regression from monotone package
+  x <- as.vector(models[[i]])
+  y <- as.vector(obs)
+  ord <- order(x, y, decreasing = c(FALSE, TRUE))
+  x <- x[ord]
+  y <- y[ord]
+  x_rc <- monotone(y)
+
+  for (t in 1:length(grd)) {
+    cat("*")
+    s <- S_elem(x, y, grd[t])
+    s_rc <- S_elem(x_rc, y, grd[t])
+    s_mg <- S_elem(mean(y), y, grd[t])
+
+    MCB_diag[t, i] <- s - s_rc
+    DSC_diag[t, i] <- s_mg - s_rc
+    if (i == 1) {
+      UNC_diag[t] <- s_mg
+    }
+  }
+}
+
+df_collect <- rbind(
+  cbind(data.frame(MCB_diag), Type = "MCB"), cbind(data.frame(DSC_diag), Type = "DSC")
+)
+colnames(df_collect) <- c(model_names, "Type")
+
+df_collect <- df_collect %>%
+  mutate(log_theta = rep(log_grid, 2)) %>%
+  pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
+  mutate(Type = ifelse(Type == "MCB", "Miscalibration", "Discrimination"))
+
+# or read precomputed values in
+df_collect <- read.csv("./../tmp_results/murphy-MCB-DSC_allRecal.csv")
+
+murphy_score_cmps <- ggplot(df_collect) +
+  facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
+             nrow = 1, scales = "free_y") +
+  geom_line(aes(x = log_theta, y = value, color = Model), size = 0.3) +
+  scale_color_manual(name = NULL, values = model_colors) +
+  scale_x_continuous(breaks = -4:1 * 5) +
+  xlab(expression(paste("Threshold log", theta))) +
+  ylab(NULL) +
+  my_theme +
+  theme(legend.position = c(0.99, 0.99), legend.justification = c(1, 1),
+        legend.background = element_blank())
+
+combine <- grid.arrange(murphy_score_cmps, nrow = 1,
+                        top = textGrob("Score Components by Elementary Score",
+                                       gp = gpar(fontsize = title_size)))
+
+file_path <- file.path(fpath, "Fig9_Murphy-MCB-DSC.pdf")
+ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine)
+
+rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine,
+   MCB_diag, DSC_diag, UNC_diag)
 
 ################################################################################
 # Reliability diagramm
@@ -497,11 +689,13 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
   x <- x[ord]
   y <- y[ord]
 
-  # we can compress step function by only storing first value and jumps!
-  filter_jumps <- function(v) return(c(T, v[-1] - v[-length(v)] > 0))
+  # we can compress step function by only storing first and last value and jumps!
+  filter_jumps <- function(v) {
+    n <- length(v)
+    return(c(T, v[c(-1, -n)] - v[c(-n+1, -n)] > 0, T))
+  }
 
-  score <- my_s_pois
-  # score <- function(x, y) mean(S_quad(x, y))
+  score <- s_pois_da
 
   x_rc <- monotone(y)
   s <- score(x,y)

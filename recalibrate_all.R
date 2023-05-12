@@ -146,6 +146,7 @@ n_resamples <- 5000
 # only use every 7-th value, as forecasts span 7-day periods
 mod <- 7      # use 1 to 7
 seventh <- 0:floor(nrow(obs) / 7)
+# for a random control: mod <- sample(1:7, length(seventh), replace = T)
 pick <- (7 * seventh + mod)[7 * seventh + mod <= nrow(obs)]
 weekday <- lubridate::wday(times[mod], label = T, abbr = F)
 
@@ -371,15 +372,15 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
   geom_step(aes(y = x_rc, color = Model), size = 0.3, show.legend = FALSE) +
   scale_color_manual(values = model_colors) +
   scale_fill_manual(values = model_colors) +
-  scale_x_log10(limits = c(0.05, 5.0)) +
-  scale_y_log10(limits = c(0.05, 5.0)) +
+  scale_x_log10(limits = c(0.05, 7.0)) +   # attention to not remove anything
+  scale_y_log10(limits = c(0.05, 7.0)) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram") +
   theme_bw() +
   theme(strip.background = element_blank(), aspect.ratio = 1)
 
-file_path <- file.path(fpath, "rc_loglog_daily_resres_round_pmax.pdf")
+file_path <- file.path(fpath, "rc_loglog_daily_correction.pdf")
 ggsave(file_path, width = 310, height = 90, unit = "mm",
        plot = main_plot + ggtitle("Reliability Diagram (loglog)"))
 
@@ -475,7 +476,7 @@ for (i in 1:length(models)) {
 
   trans <- trans_new("ecdf", my_ecdf, my_equa)
 
-  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), trans, n_resamples = 1000)
+  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), trans, n_resamples = 20)
   recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
   collect_stats <- rbind(
     collect_stats,
