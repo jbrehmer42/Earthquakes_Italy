@@ -65,11 +65,11 @@ s_quad_da <- function(X, Y) {
 lon_lim <- range(cells$LON)
 lat_lim <- range(cells$LAT)
 
-# RAM intensive: PyCharms takes up to 3 GB
+# RAM intensive: PyCharm takes up to 3 GB
 europe <- ne_countries(scale = "medium", returnclass = "sf")
 
-m_low <- "#5e0306"
-m_high <- "#fc474d"
+m_high <- "#500000"   # old dark red "#5e0306"
+m_low <- "#fc474d"
 mag_colors <- seq_gradient_pal(m_low, m_high, "Lab")(seq(0,1,length.out=6))
 
 # scale size maps 4 to area = 4, but we want to scale it a bit down
@@ -106,7 +106,7 @@ eq_count <- events %>%
   ggplot() +
   geom_col(aes(y = MAG, x = count, fill = MAG), alpha = 0.95, show.legend = F) +
   scale_fill_manual(values = setNames(mag_colors, my_breaks[-length(my_breaks)])) +
-  scale_x_log10(name = "Count [log]") +
+  scale_x_log10(name = "Count") +
   scale_y_discrete(labels = NULL) +
   ylab(NULL) +
   theme_classic(base_size = 8) +
@@ -120,8 +120,8 @@ combine <- ggplot() +
   theme(panel.background = element_rect("white"))
 
 finish <- grid.arrange(combine,
-                        top = textGrob("Earthquakes in Italy",
-                                       gp = gpar(fontsize = title_size)))
+                       top = textGrob("Earthquakes in Italy",
+                                      gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig1_Earthquakes.pdf")
 ggsave(file_path, width = 140, height = 100, unit = "mm", plot = finish)
@@ -191,8 +191,8 @@ spat_plot <- ggplot() +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_viridis_c(name = "Predicted mean",
                        breaks = 10^(c(-9, -7, -5, -3)),
-                       labels = paste0("1e", c(-9, -7, -5, -3)),
-                       trans = "log10", option = "magma",
+                       labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
+                       trans = "log10", option = "magma", direction = -1,
                        guide = guide_colorbar(title.vjust = 0.5, order = 1)) +
   scale_color_manual(name = "Obs. earthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
@@ -220,20 +220,48 @@ rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day, temp_plot,
 # Tables: Calculate Scores
 ################################################################################
 
+print_tex_table <- function(scores, colnames, digits, make_bold, file_path) {
+  begin <- paste0("\\begin{tabular}{l ", paste(rep("c", ncol(scores)), collapse = ""), "}")
+  head <- paste(paste0(c("Model", colnames), collapse = " & "), "\\\\")
+  # Write teX code to file
+  write(begin, file_path)
+  write("\\hline \\hline", file_path, append = T)
+  write(head, file_path, append = T)
+  write("\\hline", file_path, append = T)
+  # Write score values
+  for (m in rownames(scores)) {
+    row_m <- paste(m)
+    for (c in 1:ncol(scores)) {
+      fmt <- paste0("%.", digits[c], "f")
+      add_bold <- ifelse(make_bold[c] == m, "\\bf", "")
+      next_entry <- sprintf(fmt, scores[m, c])
+      row_m <- paste(row_m, " & ", add_bold, next_entry)
+    }
+    row_m <- paste0(row_m, " \\\\")
+    write(row_m, file_path, append = T)
+  }
+  write("\\hline", file_path, append = T)
+  write("\\end{tabular}", file_path, append = T)
+}
+
 # Table 1: Overall quadratic and Poisson score and its number and spatial component
 t1 <- matrix(NA, nrow = length(models), ncol = 4)
 rownames(t1) <- model_names
-colnames(t1) <- c("quad", "Poisson", "number", "spatial")
+colnames(t1) <- c("quad", "pois", "number", "spatial")
 
 for (i in 1:length(models)) {
   x_t <- rowSums(models[[i]])
   t1[i, "quad"] <- s_quad_da(models[[i]], obs)
-  t1[i, "Poisson"] <- s_pois_da(models[[i]], obs)
+  t1[i, "pois"] <- s_pois_da(models[[i]], obs)
   t1[i, "number"] <- mean(s_pois(x_t, rowSums(obs)))
   t1[i, "spatial"] <- mean(rowSums(s_pois(models[[i]] / x_t, obs)))
 }
 t1
 write.csv(t1, "./../tmp_results/Table1.csv")
+
+file_path <- file.path(fpath, "Table1.tex")
+make_bold <- rownames(t1)[apply(t1, 2, which.min)]
+print_tex_table(t1, colnames(t1), c(4, 2, 3, 3), make_bold, file_path)
 
 # Table 2: Overall quadratic and Poisson score and its MSB, DSC, and UNC component
 t2 <- matrix(NA, nrow = length(models), ncol = 8)
@@ -241,13 +269,13 @@ rownames(t2) <- model_names
 colnames(t2) <- c("quad", "q-MCB", "q-DSC", "q-UNC", "pois", "p-MCB", "p-DSC",
                   "p-UNC")
 
-# we get different scores due to sorting and summing up in a different order?
+# we could get different scores than Table 1 due to sorting and summing up in a
+# different order, but does not seem to be the case here
 
-y <- as.vector(obs)
-mean_y <- mean(y)
 for (i in 1:length(models)) {
   # recalibrate forecasts x with isotoinc regression from monotone package
   x <- as.vector(models[[i]])
+  y <- as.vector(obs)
   ord <- order(x, y, decreasing = c(FALSE, TRUE))
   x <- x[ord]
   y <- y[ord]
@@ -257,7 +285,7 @@ for (i in 1:length(models)) {
   for (scf in list(s_quad_da, s_pois_da)) {
     s <- scf(x, y)
     s_rc <- scf(x_rc, y)
-    s_mg <- scf(mean_y, y)
+    s_mg <- scf(mean(y), y)
     t2[i, j] <- s
     t2[i, j + 1] <- s - s_rc
     t2[i, j + 2] <- s_mg - s_rc
@@ -266,7 +294,16 @@ for (i in 1:length(models)) {
   }
 }
 t2
-write.csv(t1, "./../tmp_results/Table2.csv")
+write.csv(t2, "./../tmp_results/Table2.csv")
+
+file_path <- file.path(fpath, "Table2.tex")
+c_names <- c("quad", "MCB", "DSC", "UNC", "pois", "MCB", "DSC", "UNC")
+make_bold <- rownames(t2)[apply(t2 * rep(c(1, 1, -1, 1, 1, 1, -1, 1), each = nrow(t2)),
+                                2, which.min)]
+make_bold[c(4, 8)] <- "XXXXX" # in column 4 and 8 (UNC), make no Model bold
+print_tex_table(t2, c_names, c(rep(4, 4), rep(2, 4)), make_bold, file_path)
+
+rm(t1, t2, c_names, make_bold, x, y, ord, x_rc, s, s_rc, s_mg, j)
 
 ################################################################################
 # Figure 5: Poisson Score over days for each grid cell
@@ -379,8 +416,10 @@ limits <- range(diff_scores$value)
 my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
 my_labels <- c("-1e-2", "", "-1e-4", "0", "1e-4", "")
 
-# need log transform for positive and negative values (see ?modulus_trans)
-# but need to scale with d to get sufficient resolution
+# use log transform for positive and negative values (see ?modulus_trans)
+# but need to scale with d so that log scaling gets active (around zero the
+# transformation is the identity, but for large absolute values it is a log
+# transform
 d1 <- 10^5
 my_trans <- trans_new(
   "log", function(x) sign(x) * log(abs(x) * d1  + 1),
@@ -560,7 +599,7 @@ rm(scores_n, diff_scores, number_plot, scores_s, spatial_plot, combine_plots)
 # Murphy diagramm
 ################################################################################
 
-S_elem <- compiler::cmpfun(S_theta)
+S_elem <- compiler::cmpfun(S_theta) # compile function to reduce runtime a bit
 
 n_theta <- 100
 log_grid <- seq(-24, 4, len = n_theta)
@@ -579,7 +618,7 @@ for (m in 1:length(models)) {
 colnames(murphy_df) <- model_names
 
 # S_theta sums, but we want daily averages
-murphy_df <- murphy_df / nrow(obs)
+murphy_df <- murphy_df / n_days
 
 # or read it in
 murphy_df <- read.csv("./../tmp_results/murphy_df.csv")
@@ -646,9 +685,12 @@ for (i in 1:n_mods) {
 }
 
 df_collect <- rbind(
-  cbind(data.frame(MCB_diag), Type = "MCB"), cbind(data.frame(DSC_diag), Type = "DSC")
+  # again divide by n_days to get daily averages
+  cbind(data.frame(MCB_diag / n_days), Type = "MCB"),
+  cbind(data.frame(DSC_diag / n_days), Type = "DSC")
 )
 colnames(df_collect) <- c(model_names, "Type")
+UNC_diag <- UNC_diag / n_days
 
 df_collect <- df_collect %>%
   mutate(log_theta = rep(log_grid, 2)) %>%
@@ -660,7 +702,7 @@ df_collect <- read.csv("./../tmp_results/murphy-MCB-DSC_allRecal.csv")
 
 murphy_score_cmps <- ggplot(df_collect) +
   facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
-             nrow = 1, scales = "free_y") +
+             nrow = 2, scales = "free_y") +
   geom_line(aes(x = log_theta, y = value, color = Model), size = 0.3) +
   scale_color_manual(name = NULL, values = model_colors) +
   scale_x_continuous(breaks = -4:1 * 5) +
@@ -675,10 +717,22 @@ combine <- grid.arrange(murphy_score_cmps, nrow = 1,
                                        gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig9_Murphy-MCB-DSC.pdf")
-ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine)
+ggsave(file_path, width = 145, height = 100, unit = "mm", plot = combine)
+
+# coherence checks:
+# If we integrate murphy diagram with correct measure, do we get score?
+# If we integrate MCB / DSC Murphy diagram, do we get MCB and DSC component?
+# If we combine MCB, DSC, UNC Murphy diagram, do we get Murphy diagram?
+combine_back <- df_collect %>%
+  pivot_wider(id_cols = c(log_theta, Model), names_from = Type, values_from = value) %>%
+  mutate(MSC_DSC = Miscalibration - Discrimination) %>%
+  pivot_wider(id_cols = log_theta, names_from = Model, values_from = MSC_DSC) %>%
+  mutate(across(all_of(model_names), function(m) m + UNC_diag)) %>%
+  select(all_of(model_names))
+colSums(abs(combine_back - murphy_df))
 
 rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine,
-   MCB_diag, DSC_diag, UNC_diag)
+   MCB_diag, DSC_diag, UNC_diag, combine_back)
 
 ################################################################################
 # Reliability diagramm
@@ -771,7 +825,7 @@ for (i in 1:length(models)) {
 
 # or load already recalibrated values
 recal_models <- read.csv("./../tmp_results/recal_models_100_bag-Tilmann.csv")
-collect_stats <- read.csv("./../tmp_results/collect_stats.csv")
+collect_stats <- read.csv("./../tmp_results/collect_stats_new.csv")
 
 col_ecdfs <- list()
 for (i in 1:length(models)) {
@@ -865,9 +919,9 @@ for (i in 1:length(models)) {
   collect_recal_plots[[i]] <- main_plot + inset_histograms
 }
 
-combine <- grid.arrange(collect_recal_plots[[2]],
+combine <- grid.arrange(collect_recal_plots[[1]],
+                        collect_recal_plots[[2]],
                         collect_recal_plots[[3]],
-                        collect_recal_plots[[1]],
                         collect_recal_plots[[4]],
                         nrow = 2,
                         top = textGrob("Reliability Diagram",
@@ -877,7 +931,7 @@ combine <- grid.arrange(collect_recal_plots[[2]],
                         left = textGrob("Conditional mean", rot = 90,
                                        gp = gpar(fontsize = 11)))
 
-file_path <- file.path(fpath, "Fig7_ReliabilityDiagram.pdf")
+file_path <- file.path(fpath, "Fig8_ReliabilityDiagram.pdf")
 ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine)
 
 rm(combine, collect_recal_plots, col_ecdfs, collect_stats, recal_models)

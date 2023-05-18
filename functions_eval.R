@@ -38,14 +38,14 @@ S_bin <- function(x, y, a, b) {
 
 
 S_theta <- function(x, y, theta) {
-  # Elementary scoring function for the mean following
-  # Ehm et al. (2016)
+  # Elementary scoring function for the mean following Ehm et al. (2016)
   if ( sum(y) == 0 ) {
-    s <- 1/2 * theta * sum(x > theta)
+    s <- theta * sum(x > theta)
   } else {
-    s <- 1/2 * sum( pmax(y-theta, 0) - pmax(x-theta, 0) - (y - x) *
+    s <- sum( pmax(y-theta, 0) - pmax(x-theta, 0) - (y - x) *
                       (theta < x) )
   }
+  return(s)
 }
 
 
@@ -56,7 +56,7 @@ S_theta_vec <- function(x, y, theta) {
   ind <- outer(x, theta, function(x,y) as.numeric(y < x))
   theta_mat <- matrix(theta, nrow = length(x), ncol = length(theta), byrow = T)
   val <- pmax(y - theta_mat, 0) - pmax(x - theta_mat, 0) - (y - x) * ind
-  return(1/2 * val)
+  return(val)
 }
 
 
