@@ -159,7 +159,6 @@ temp_plot <- pred_by_day %>%
   labs(subtitle = "For all of Italy") +
   annotate(geom = "text", label = "(*)", x = i_time, y = 0.15, size = 3,
            color = "black") +
-  theme_bw() +
   my_theme +
   theme(legend.position = "bottom", legend.margin = margin(0, 5.5, 5.5, 5.5))
 
@@ -200,7 +199,6 @@ spat_plot <- ggplot() +
                                           keyheight = unit(5, "points"),
                                           title.vjust = 0.6, order = 2)) +
   labs(subtitle = "For the 7-day Period Following (*)") +
-  theme_bw() +
   my_theme +
   theme(legend.position = "bottom", legend.box.just = "left",
         plot.margin = margin(2.5, 5.5, 5.5, 10.5),
@@ -365,7 +363,6 @@ single_cells <- ggplot(cbind(diff_scores, R = "")) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_gradientn(name = "Score\ndifference", colors = my_colors,
                        values = rescale(col_breaks_1)) +
-  theme_bw() +
   my_theme +
   theme(legend.position = "right", axis.text.x = element_blank())
 
@@ -382,7 +379,6 @@ acc_cells <- ggplot(cbind(diff_scores_acc, R = "Agg. cells with a radius of 2"))
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_gradientn(name = "", colors = my_colors,
                        values = rescale(col_breaks_1)) +
-  theme_bw() +
   my_theme +
   theme(legend.position = "right", strip.text.x = element_blank(),
         plot.margin = margin(5.5, 5.5, 5.5, 12))
@@ -453,7 +449,6 @@ spat_plot <- ggplot() +
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"))) +
-  theme_bw() +
   my_theme +
   theme(legend.position = "bottom")
 
@@ -912,7 +907,6 @@ for (i in 1:length(models)) {
     geom_text(data = filter(collect_stats, Model == model_names[i]),
               mapping = aes(x = 0.05, y = 0.75, label = label),
               size = 8 * 0.36, hjust = 0, vjust = 0) +
-    theme_bw() +
     my_theme +
     theme(aspect.ratio = 1)
 
