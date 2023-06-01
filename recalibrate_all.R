@@ -43,7 +43,7 @@ filter_jumps <- function(v) {
   return(c(T, v[c(-1, -n)] - v[c(-n+1, -n)] > 0, T))
 }
 
-fit_isotonic_all <- function(x, y) {
+fit_isotonic_all <- function(x, y, with_y = FALSE) {
   x <- as.vector(x)
   y <- as.vector(y)
 
@@ -51,14 +51,38 @@ fit_isotonic_all <- function(x, y) {
   x <- x[ord]
   y <- y[ord]
   x_rc <- monotone(y)
-  return(data.table(x = x, y = y, x_rc = x_rc))
+  if (with_y) {
+    return(data.table(x = x, y = y, x_rc = x_rc))
+  } else {
+    return(data.table(x = x, x_rc = x_rc))
+  }
 }
 
-fit_isotonic_by_cell <- function(x, y) {
+fit_isotonic_by_cell <- function(x, y, with_y = FALSE) {
   # fit isotonic regression for each cell separately
-  return(do.call(
-    rbind, lapply(1:ncol(x), function(c) fit_isotonic_all(x[, c], y[, c]))
-  ))
+
+  # check whether all observations are 0 or less (in resampling we can have that)
+  zero_cols <- apply(y, 2, function(col) all(col <= 0))
+
+  recal_by_cell <- do.call(rbind, lapply(1:ncol(x), function(col) {
+    if (zero_cols[col]) {
+      return(data.table(x = x[, col], y = y[, col], x_rc = 0))   # recalibration is just 0's
+    } else {
+      return(fit_isotonic_all(x[, col], y[, col], with_y = T))
+    }
+  })) %>%
+    group_by(x)
+  # we have for the same forecast value, possibly #cells different recalibrated values
+  # --> average them as we are estimating conditional averages
+  if (with_y) {
+    recal_by_cell <- recal_by_cell %>%
+      group_modify(function(df, key) data.table(y = df$y, x_rc = mean(df$x_rc))) %>%
+      ungroup()
+  } else {
+   recal_by_cell <- recal_by_cell %>%
+     summarise(x_rc = mean(x_rc), .groups = "drop")
+  }
+  return(arrange(recal_by_cell, x))
 }
 
 resample_residuals <- function(x, y, B, get_iso_fit) {
@@ -81,24 +105,46 @@ resample_daily_residuals <- function(x, y, B, get_iso_fit) {
   # resample rows, i.e. each acknowledge spatial distribution of errors
   collect_vals <- list()
 
-  mean_res <- mean(res)
+  res <- y - x
+  # by subtracting mean residual, accorind forecast is unconditionally and hence
+  # conditionally (we assume forecast and residuals are independent) calibrated
+  res <- res - matrix(rep(colMeans(res), nrow(res)), nrow(res), byrow = T)
   for (i in 1:B) {
     y <- x + res[sample(1:nrow(res), nrow(res), replace = TRUE), ]
     collect_vals[[i]] <- get_iso_fit(x, y) %>%
       filter(filter_jumps(x_rc)) %>%
-      transmute(x = x, y = pmax(0, x_rc - mean_res), I = paste0("R", i))
+      transmute(x = x, y = pmax(0, x_rc), I = paste0("R", i))
   }
   return(collect_vals)
 }
 
-resample_trams_residuals <- function(x, y, B, get_iso_fit) {
+resample_cell_residuals <- function(x, y, B, get_iso_fit) {
+  # resample, but only use cell-specific residuals
+  collect_vals <- list()
+
+  res <- y - x
+  # by subtracting mean residual, accorind forecast is unconditionally and hence
+  # conditionally (we assume forecast and residuals are independent) calibrated
+  res <- res - matrix(rep(colMeans(res), nrow(res)), nrow(res), byrow = T)
+  for (i in 1:B) {
+    y <- x + apply(res, 2, function(col) sample(col, length(col), replace = T))
+    collect_vals[[i]] <- get_iso_fit(x, y) %>%
+      filter(filter_jumps(x_rc)) %>%
+      transmute(x = x, y = pmax(0, x_rc), I = paste0("R", i))
+  }
+  return(collect_vals)
+}
+
+resample_trans_residuals <- function(x, y, B, get_iso_fit) {
   # resample transformed resiudals, transformation has to be defined in global scope
   collect_vals <- list()
 
   res <- trans$transform(y) - trans$transform(x)
   for (i in 1:B) {
-    y <- trans$inverse(trans$transform(x) + matrix(sample(as.vector(res), prod(dim(y)), replace = TRUE),
-                                                   nrow = nrow(y), ncol = ncol(y)))
+    y <- trans$inverse(
+      trans$transform(x) + matrix(sample(as.vector(res), prod(dim(y)), replace = TRUE),
+                                  nrow = nrow(y), ncol = ncol(y))
+    )
 
     collect_vals[[i]] <- get_iso_fit(x, y) %>%
       filter(filter_jumps(x_rc)) %>%
@@ -135,7 +181,7 @@ resample_adapt_cond_distr <- function(x, y, B, get_iso_fit) {
 
 reldiag <- function(x, y, n_resamples = 99, region_level = 0.9, score = my_s_pois,
                     get_iso_fit = fit_isotonic_all, res_for_cons = resample_residuals) {
-  my_iso_fit <- get_iso_fit(x, y)
+  my_iso_fit <- get_iso_fit(x, y, with_y = T) # output should contain y's to calc scores
   s <- score(my_iso_fit$x, my_iso_fit$y)
   s_rc <- score(my_iso_fit$x_rc, my_iso_fit$y)
   s_mg <- score(mean(my_iso_fit$y), my_iso_fit$y)
@@ -217,11 +263,22 @@ my_labeller <- function(l) paste(l)
 
 # ------------------------------------------------------------------------------
 
+# runtimes per fit: reldiag fits n_resamples + 1 isotonic regressions, and
+# resamples therefore n_resamples times
+#
+# rough runtime durations with n_resamples = 5
+#       (1)   (2)   (3)   (4)
+# (A)   120s  60s   45s   60s
+# (B)
 
-pick_iso <- fit_isotonic_all
 
-pick_res <- resample_adapt_cond_distr
-pick_res <- resample_residuals
+pick_iso <- fit_isotonic_all        # (A)
+pick_iso <- fit_isotonic_by_cell    # (B)
+
+pick_res <- resample_adapt_cond_distr   # (1)
+pick_res <- resample_residuals          # (2)
+pick_res <- resample_daily_residuals    # (3)
+pick_res <- resample_cell_residuals     # (4)
 
 reldiag_cmp <- compiler::cmpfun(function(x, y) {
   reldiag(x, y, n_resamples, get_iso_fit = pick_iso, res_for_cons = pick_res)
@@ -233,20 +290,23 @@ collect_stats <- data.table()
 set.seed(999)
 
 for (i in 1:length(models)) {
+  print(Sys.time())
+  cat("-", model_names[i], "\n")
   res <- reldiag_cmp(my_models[[i]], my_obs)
   recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
   collect_stats <- rbind(
     collect_stats,
     cbind(Model = model_names[i], res$stats,
           label = paste(names(res$stats), c("", " ", " ", " "),
-                        sprintf("%.2e", res$stats[1, ]),
+                        sprintf("%.3f", res$stats[1, ]),
                         collapse = "\n"))
   )
+  print(Sys.time())
 }
 
 # or just load already recalibrated values
-recal_models <- read.csv("./../tmp_results/recal_models_100_bag-Tilmann.csv")
-collect_stats <- read.csv("./../tmp_results/collect_stats.csv")
+recal_models <- read.csv("./../tmp_results/recal_models_100_bag-Tilmann.csv", row.names = 1)
+collect_stats <- read.csv("./../tmp_results/collect_stats.csv", row.names = 1)
 
 # plot calibration curve under certain data transformations ====================
 # use empirical CDF transform
@@ -256,6 +316,11 @@ for (i in 1:length(my_models)) {
   col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
                                y = c(0, cumsum(as.numeric(t))) / prod(dim(my_models[[i]])),
                                M = model_names[i])
+}
+
+# or just loaded already computed values
+for (i in 1:length(models)) {
+  col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"), row.names = 1)
 }
 
 # use individual empirical CDFs for plotting -----------------------------------
@@ -341,7 +406,7 @@ combine <- grid.arrange(collect_recal_plots[[1]],
                         left = textGrob("Conditional mean", rot = 90,
                                        gp = gpar(fontsize = 11)))
 
-file_path <- file.path(fpath, "all_Tilmann.pdf")
+file_path <- file.path(fpath, "all_resByCell_20.pdf")
 ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine)
 
 # log log scale ----------------------------------------------------------------
