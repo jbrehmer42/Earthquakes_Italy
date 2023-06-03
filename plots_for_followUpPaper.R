@@ -12,7 +12,7 @@ library(scales)           # trans_new - custom data transformation
                           # seq_gradient_pal - custom color gradient
 
 source("data_prep.R")
-source("functions_eval.R")
+source("functions_eval.R")    # for elementary score
 
 model_colors <- c("FMC" = "#F8766D", "LG" = "#00BA38", "SMA" = "#619CFF",
                   "LM" = "#DB72FB")
@@ -21,7 +21,9 @@ cmp_model <- "LM"
 cmp_m <- sym(cmp_model)
 ana_models <- model_names[model_names != cmp_model]
 
-fpath <- "./figures2"
+new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
+
+fpath <- "./figures3"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -137,8 +139,6 @@ pred_by_day <- data.frame(do.call(cbind, lapply(models, rowSums))) %>%
   mutate(X = 1:nrow(.), earthquake = rowSums(obs) != 0)
 colnames(pred_by_day) <- c(model_names, "X", "earthquake")
 
-new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
-
 i_time <- 1449  # 3 days later Mag 6.1 earthquake
 
 temp_plot <- pred_by_day %>%
@@ -184,7 +184,7 @@ spat_plot <- ggplot() +
   geom_tile(data = pred_by_cell_long, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
           size = 0.2, fill = NA) +
-  geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs. earthquakes"), fill = NA) +
+  # geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs. earthquakes"), fill = NA) +
   coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
   scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
@@ -252,7 +252,7 @@ for (i in 1:length(models)) {
   t1[i, "quad"] <- s_quad_da(models[[i]], obs)
   t1[i, "pois"] <- s_pois_da(models[[i]], obs)
   t1[i, "number"] <- mean(s_pois(x_t, rowSums(obs)))
-  t1[i, "spatial"] <- mean(rowSums(s_pois(models[[i]] / x_t, obs)))
+  t1[i, "spatial"] <- mean(rowSums(s_pois(models[[i]] / x_t, obs))) - 1
 }
 t1
 write.csv(t1, "./../tmp_results/Table1.csv")
@@ -304,173 +304,46 @@ print_tex_table(t2, c_names, c(rep(4, 4), rep(2, 4)), make_bold, file_path)
 rm(t1, t2, c_names, make_bold, x, y, ord, x_rc, s, s_rc, s_mg, j)
 
 ################################################################################
-# Figure 5: Poisson Score over days for each grid cell
+# Visualize Poisson score differences temporally
 ################################################################################
-
-scores <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X, obs))))
-scores <- data.frame(scores)
-colnames(scores) <- model_names
-
-diff_scores <- scores %>%
-  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
-  mutate(LON = cells$LON, LAT = cells$LAT) %>%
-  select(LON, LAT, all_of(ana_models)) %>%
-  pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores$Model <- paste(diff_scores$Model, "vs.", cmp_model)
-
-neigh_mat <- function(cells, k, diff = function(x, y) abs(x - y), agg = pmax) {
-  # Compute neighborhood matrix for spatial aggregation:
-  # binary square matrix where a 1 at position (i,j) indicates that cells i and
-  # j are in each others neighborhoods.
-
-  n_cells <- dim(cells)[1]
-  # Aggregation will usually be done for small values
-  # of k so "sparse = T" makes sense in most cases
-  mat <- Matrix(0, nrow = n_cells, ncol = n_cells, sparse = T)
-  for (i in 1:n_cells) {
-    neighbors <- agg(diff(cells$X[i], cells$X), diff(cells$Y[i], cells$Y)) <= k
-    mat[, i] <- as.numeric(neighbors)
-  }
-  return(mat)
-}
-
-m_neigh <- neigh_mat(cells, 2, function(x, y) abs(x - y))
-# m_neigh <- neigh_mat(cells, 2, function(x, y) (x - y)^2, function(x, y) sqrt(x + y))
-obs_acc <- obs %*% m_neigh
-
-scores_acc <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X %*% m_neigh, obs_acc))))
-scores_acc <- data.frame(scores_acc)
-colnames(scores_acc) <- model_names
-
-diff_scores_acc <- scores_acc %>%
-  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
-  mutate(LON = cells$LON, LAT = cells$LAT) %>%
-  select(LON, LAT, all_of(ana_models)) %>%
-  pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores_acc$Model <- paste(diff_scores_acc$Model, "vs.", cmp_model)
-
-my_colors <- c("#de7702", muted("red"), "#ffffff", muted("blue"))
-limits <- range(diff_scores_acc$value)
-col_breaks_1 <- c(limits[1], -limits[2], 0, limits[2])
-
-single_cells <- ggplot(cbind(diff_scores, R = "")) +
-  facet_grid(R ~ Model) +
-  geom_tile(aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
-  geom_sf(data = filter(europe, name == "Italy"), color = "black", fill = NA,
-          size = 0.2) +
-  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
-  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
-  scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  scale_fill_gradientn(name = "Score\ndifference", colors = my_colors,
-                       values = rescale(col_breaks_1)) +
-  my_theme +
-  theme(legend.position = "right", axis.text.x = element_blank())
-
-limits <- range(diff_scores_acc$value)
-col_breaks_2 <- c(limits[1], -limits[2], 0, limits[2])
-
-acc_cells <- ggplot(cbind(diff_scores_acc, R = "Agg. cells with a radius of 2")) +
-  facet_grid(R ~ Model) +
-  geom_tile(aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
-  geom_sf(data = filter(europe, name == "Italy"), color = "black", fill = NA,
-          size = 0.2) +
-  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
-  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
-  scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  scale_fill_gradientn(name = "", colors = my_colors,
-                       values = rescale(col_breaks_1)) +
-  my_theme +
-  theme(legend.position = "right", strip.text.x = element_blank(),
-        plot.margin = margin(5.5, 5.5, 5.5, 12))
-
-combine <- grid.arrange(single_cells, acc_cells, nrow = 2,
-                        top = textGrob("Mean Poisson Score Difference",
-                                       gp = gpar(fontsize=15)))
-
-file_path <- file.path(fpath, "Fig5_spatialScoreDifferences.pdf")
-ggsave(file_path, width = 190, height = 160, unit = "mm", plot = combine)
-
-rm(diff_scores, m_neigh, obs_acc, scores_acc, diff_scores_acc)
-
-################################################################################
-# Visualize Poisson Scores over time and score differences spatially
-################################################################################
-
-scores <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X, obs))))
-scores <- data.frame(scores)
-colnames(scores) <- model_names
-
-diff_scores <- scores %>%
-  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
-  mutate(LON = cells$LON, LAT = cells$LAT) %>%
-  select(LON, LAT, all_of(ana_models)) %>%
-  pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores$Model <- paste(cmp_model, "vs.", diff_scores$Model)
-
-my_colors <- c("#800303", "#f51818", "#ffffff", "#057ffa")
-limits <- range(diff_scores$value)
-my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
-my_labels <- c("-1e-2", "", "-1e-4", "0", "1e-4", "")
-
-# use log transform for positive and negative values (see ?modulus_trans)
-# but need to scale with d so that log scaling gets active (around zero the
-# transformation is the identity, but for large absolute values it is a log
-# transform
-d1 <- 10^5
-my_trans <- trans_new(
-  "log", function(x) sign(x) * log(abs(x) * d1  + 1),
-  function(y) sign(y) / d1 * (exp(abs(y)) - 1)
-)
-col_breaks <- my_trans$transform(c(limits[1], -limits[2], 0, limits[2]))
-
-eq_loc <- events %>%
-  group_by(N) %>%
-  summarise(Count = n(), .groups = "drop")  %>%
-  left_join(cells, by = "N") %>%
-  select(LON, LAT, Count)
-
-spat_plot <- ggplot() +
-  facet_grid(~Model) +
-  geom_tile(data = diff_scores,
-            aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
-  geom_tile(data = eq_loc, aes(x = LON, y = LAT, color = "Obs. earthquakes"),
-            fill = NA) +
-  geom_sf(data = filter(europe, name == "Italy"), color = "black", fill = NA,
-          size = 0.2) +
-  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
-  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
-  scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  scale_fill_gradientn(name = "Score\ndifference",
-                       trans = my_trans, colors = my_colors, values = rescale(col_breaks),
-                       breaks = my_breaks, labels = my_labels, minor_breaks = my_mbreaks,
-                       guide = guide_colorbar(barwidth = unit(40, "mm"),
-                                              title.vjust = 0.9)) +
-  scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
-                     labels = "",
-                     guide = guide_legend(keywidth = unit(5, "points"),
-                                          keyheight = unit(5, "points"))) +
-  my_theme +
-  theme(legend.position = "bottom")
-
-combine_plots <- grid.arrange(spat_plot, nrow = 1,
-                              top = textGrob("Average Poisson Score Differences by Grid Cell",
-                                             gp = gpar(fontsize = title_size)))
-file_path <- file.path(fpath, "Fig6_ScoreDiffSpat.pdf")
-ggsave(file_path, width = 145, height = 90, unit = "mm", plot = combine_plots)
-
-# and now temporally
 
 scores <- do.call(cbind, lapply(models, function(X) rowSums(s_pois(X, obs))))
 scores <- data.frame(scores) %>%
   mutate(X = 1:nrow(.), earthquake = rowSums(obs) != 0)
 colnames(scores) <- c(model_names, "X", "earthquake")
+scores_long <- pivot_longer(scores, cols = all_of(model_names), names_to = "Model")
+
+score_plot <- ggplot(scores_long) +
+  geom_vline(data = filter(scores, earthquake > 0),
+             aes(xintercept = X, linetype = "Obs. earthquakes"),
+             alpha = 0.3, color = "gray", size = 0.3) +
+  geom_point(aes(x = X, y = value, color = Model), size = 0.3, alpha = 0.5) +
+  scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
+                     limits = c(0, nrow(scores))) +
+  scale_color_manual(name = NULL, values = model_colors,
+                     guide = guide_legend(order = 1, direction = "horizontal",
+                                          override.aes = list(alpha = 1))) +
+  scale_linetype_manual(name = NULL, values = c("Obs. earthquakes" = 1),
+                        labels = "Obs. earthquakes",
+                        guide = guide_legend(override.aes = list(alpha = 1, size = 0.4),
+                                             order = 2, direction = "horizontal")) +
+  scale_y_log10() +
+  xlab(NULL) +
+  ylab("Score") +
+  ggtitle(NULL) +
+  my_theme +
+  theme(legend.position = "bottom", legend.box = "horizontal")
+
+combine_plots <- grid.arrange(score_plot, nrow = 1,
+                              top = textGrob("Poisson Scores By Day",
+                                             gp = gpar(fontsize = title_size)))
+file_path <- file.path(fpath, "Fig3_DailyScores.pdf")
+ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine_plots)
 
 diff_scores <- scores %>%
   mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
   select(X, earthquake, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
-
-new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
 d2 <- 10^3
 my_trans2 <- trans_new(
@@ -479,7 +352,7 @@ my_trans2 <- trans_new(
 )
 my_breaks <- c(-10^(c(2, 0, -2)), 0, 10^(c(-2, 0)))
 minor_breaks <- c(-10^(2:-3), 0, 10^(-3:1))
-my_labels <- c("-1e2", "-1", "-1e-2", "0", "1e-2", "1")
+my_labels <- c("-100", "-1", "-0.01", "0", "0.01", "1")
 
 temp_plot <- ggplot(diff_scores) +
   geom_vline(data = filter(diff_scores, earthquake > 0),
@@ -503,7 +376,7 @@ temp_plot <- ggplot(diff_scores) +
   ylab("Score difference") +
   ggtitle(NULL) +
   my_theme +
-  theme(legend.position = "bottom", legend.box = "horizontal",)
+  theme(legend.position = "bottom", legend.box = "horizontal")
 
 combine_plots <- grid.arrange(temp_plot, nrow = 1,
                               top = textGrob("Poisson Score Differences By Day",
@@ -511,7 +384,7 @@ combine_plots <- grid.arrange(temp_plot, nrow = 1,
 file_path <- file.path(fpath, "Fig4_ScoreDiffTemp.pdf")
 ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine_plots)
 
-rm(scores, diff_scores, combine_plots, spat_plot, temp_plot)
+rm(scores, scores_long, diff_scores, combine_plots, score_plot, temp_plot)
 
 ################################################################################
 # Poisson Score: Number and spatial component
@@ -551,7 +424,7 @@ scores_s <- do.call(
   cbind, lapply(models, function(X) {
     row_sums <- rowSums(X)
     X_norm <- apply(X, 2, function(col) col / row_sums)
-    return(rowSums(s_pois(X_norm, obs)))
+    return(rowSums(s_pois(X_norm, obs)) - 1)
   })
 )
 scores_s <- data.frame(scores_s)
@@ -588,7 +461,79 @@ combine_plots <- grid.arrange(number_plot, spatial_plot, nrow = 2,
 file_path <- file.path(fpath, "Fig5_NumberSpatials.pdf")
 ggsave(file_path, width = 145, height = 135, unit = "mm", plot = combine_plots)
 
+# check whether plots fits to overall number and spatial score
+colMeans(scores_n)
+colMeans(scores_s)
+
 rm(scores_n, diff_scores, number_plot, scores_s, spatial_plot, combine_plots)
+
+################################################################################
+# Visualize Poisson score differences spatially
+################################################################################
+
+scores <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X, obs))))
+scores <- data.frame(scores)
+colnames(scores) <- model_names
+
+diff_scores <- scores %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  mutate(LON = cells$LON, LAT = cells$LAT) %>%
+  select(LON, LAT, all_of(ana_models)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model")
+diff_scores$Model <- paste(cmp_model, "vs.", diff_scores$Model)
+
+my_colors <- c("#800303", "#f51818", "#ffffff", "#057ffa")
+limits <- range(diff_scores$value)
+my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
+my_labels <- expression(-10^-2, "", -10^-4, 0, 10^-4, "")
+
+# use log transform for positive and negative values (see ?modulus_trans)
+# but need to scale with d so that log scaling gets active (around zero the
+# transformation is the identity, but for large absolute values it is a log
+# transform
+d1 <- 10^5
+my_trans <- trans_new(
+  "log", function(x) sign(x) * log(abs(x) * d1  + 1),
+  function(y) sign(y) / d1 * (exp(abs(y)) - 1)
+)
+col_breaks <- my_trans$transform(c(limits[1], -limits[2], 0, limits[2]))
+
+eq_loc <- events %>%
+  group_by(N) %>%
+  summarise(Count = n(), .groups = "drop")  %>%
+  left_join(cells, by = "N") %>%
+  select(LON, LAT, Count)
+
+spat_plot <- ggplot() +
+  facet_grid(~Model) +
+  geom_tile(data = diff_scores,
+            aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
+  geom_tile(data = eq_loc, aes(x = LON, y = LAT, color = "Obs. earthquakes"),
+            fill = NA) +
+  geom_sf(data = filter(europe, name == "Italy"), color = "black", fill = NA,
+          size = 0.2) +
+  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
+  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
+  scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
+  scale_fill_gradientn(name = "Score\ndifference",
+                       trans = my_trans, colors = my_colors, values = rescale(col_breaks),
+                       breaks = my_breaks, labels = my_labels,
+                       guide = guide_colorbar(barwidth = unit(40, "mm"),
+                                              title.vjust = 0.9)) +
+  scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
+                     labels = "",
+                     guide = guide_legend(keywidth = unit(5, "points"),
+                                          keyheight = unit(5, "points"))) +
+  my_theme +
+  theme(legend.position = "bottom")
+
+combine_plots <- grid.arrange(spat_plot, nrow = 1,
+                              top = textGrob("Average Poisson Score Differences by Grid Cell",
+                                             gp = gpar(fontsize = title_size)))
+file_path <- file.path(fpath, "Fig6_ScoreDiffSpat.pdf")
+ggsave(file_path, width = 145, height = 90, unit = "mm", plot = combine_plots)
+
+rm(scores, diff_scores, combine_plots, spat_plot, eq_loc)
 
 ################################################################################
 # Murphy diagramm
@@ -631,8 +576,7 @@ murphy_diag <- data.frame(murphy_df) %>%
   xlab(expression(paste("Threshold log", theta))) +
   ylab("Elementary score") +
   my_theme +
-  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0),
-        legend.background = element_blank())
+  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0))
 
 combine <- grid.arrange(murphy_diag, nrow = 1,
                         top = textGrob("Murphy Difference Diagram",
@@ -704,8 +648,7 @@ murphy_score_cmps <- ggplot(df_collect) +
   xlab(expression(paste("Threshold log", theta))) +
   ylab(NULL) +
   my_theme +
-  theme(legend.position = c(0.99, 0.99), legend.justification = c(1, 1),
-        legend.background = element_blank())
+  theme(legend.position = c(0.99, 0.99), legend.justification = c(1, 1))
 
 combine <- grid.arrange(murphy_score_cmps, nrow = 1,
                         top = textGrob("Score Components by Elementary Score",
@@ -813,13 +756,13 @@ for (i in 1:length(models)) {
     collect_stats,
     cbind(Model = model_names[i], res$stats,
           label = paste(names(res$stats), c("", " ", " ", " "),
-                        sprintf("%.2e", res$stats[1, ]),
+                        sprintf("%.3f", res$stats[1, ]),
                         collapse = "\n"))
   )
 }
 
 # or load already recalibrated values
-recal_models <- read.csv("./../tmp_results/recal_models_100_bag-Tilmann.csv")
+recal_models <- read.csv("./../tmp_results/recal_models_all-Tilmann-100-new.csv")
 collect_stats <- read.csv("./../tmp_results/collect_stats_new.csv")
 
 col_ecdfs <- list()
@@ -828,6 +771,11 @@ for (i in 1:length(models)) {
   col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
                                y = c(0, cumsum(as.numeric(t))) / prod(dim(models[[i]])),
                                M = model_names[i])
+}
+
+# or just loaded already computed values
+for (i in 1:length(models)) {
+  col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"), row.names = 1)
 }
 
 collect_recal_plots <- list()
@@ -905,12 +853,13 @@ for (i in 1:length(models)) {
     ylab(NULL) +
     ggtitle(NULL) +
     geom_text(data = filter(collect_stats, Model == model_names[i]),
-              mapping = aes(x = 0.05, y = 0.75, label = label),
+              mapping = aes(x = 0.02, y = 0.72, label = label),
               size = 8 * 0.36, hjust = 0, vjust = 0) +
     my_theme +
-    theme(aspect.ratio = 1)
+    theme(aspect.ratio = 1, panel.grid.major = element_blank(), panel.grid.minor = element_blank())
 
-  collect_recal_plots[[i]] <- main_plot + inset_histograms
+  # collect_recal_plots[[i]] <- main_plot + inset_histograms
+  collect_recal_plots[[i]] <- main_plot
 }
 
 combine <- grid.arrange(collect_recal_plots[[1]],
