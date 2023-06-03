@@ -128,7 +128,7 @@ finish <- grid.arrange(combine,
 file_path <- file.path(fpath, "Fig1_Earthquakes.pdf")
 ggsave(file_path, width = 140, height = 100, unit = "mm", plot = finish)
 
-rm(eq_map, eq_count, combine)
+rm(eq_map, eq_count, combine, finish)
 
 ################################################################################
 # Figure 2: Distribution of forecasts over time and space
@@ -144,20 +144,19 @@ i_time <- 1449  # 3 days later Mag 6.1 earthquake
 temp_plot <- pred_by_day %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
   ggplot() +
-  geom_vline(data = filter(pred_by_day, earthquake),
-             aes(xintercept = X, linetype = "Obs. earthquakes"), size = 0.3,
-             color = "gray", alpha = 0.2) +
+  geom_point(data = filter(pred_by_day, earthquake),
+             aes(x = X, y = 0.15, shape = "Obs. earthquakes"), size = 0.75,
+             color = "gray") +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = pred_by_day$X[new_year], labels = year(times[new_year])) +
   scale_y_log10() +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(override.aes = list(size = 0.5))) +
-  scale_linetype_manual(name = NULL, values = c("Obs. earthquakes" = 1),
-                        guide = guide_legend(override.aes = list(alpha = 1, size = 0.5))) +
+  scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   xlab(NULL) +
   ylab("Predicted mean") +
   labs(subtitle = "For all of Italy") +
-  annotate(geom = "text", label = "(*)", x = i_time, y = 0.15, size = 3,
+  annotate(geom = "text", label = "*", x = i_time, y = 0.14, size = 3,
            color = "black") +
   my_theme +
   theme(legend.position = "bottom", legend.margin = margin(0, 5.5, 5.5, 5.5))
@@ -198,7 +197,7 @@ spat_plot <- ggplot() +
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"),
                                           title.vjust = 0.6, order = 2)) +
-  labs(subtitle = "For the 7-day Period Following (*)") +
+  labs(subtitle = "For the 7-day Period Following *") +
   my_theme +
   theme(legend.position = "bottom", legend.box.just = "left",
         plot.margin = margin(2.5, 5.5, 5.5, 10.5),
@@ -314,19 +313,16 @@ colnames(scores) <- c(model_names, "X", "earthquake")
 scores_long <- pivot_longer(scores, cols = all_of(model_names), names_to = "Model")
 
 score_plot <- ggplot(scores_long) +
-  geom_vline(data = filter(scores, earthquake > 0),
-             aes(xintercept = X, linetype = "Obs. earthquakes"),
-             alpha = 0.3, color = "gray", size = 0.3) +
+  geom_point(data = filter(scores, earthquake > 0),
+             aes(x = X, y = 0.15, shape = "Obs. earthquakes"), color = "gray",
+             size = 0.75) +
   geom_point(aes(x = X, y = value, color = Model), size = 0.3, alpha = 0.5) +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(order = 1, direction = "horizontal",
                                           override.aes = list(alpha = 1))) +
-  scale_linetype_manual(name = NULL, values = c("Obs. earthquakes" = 1),
-                        labels = "Obs. earthquakes",
-                        guide = guide_legend(override.aes = list(alpha = 1, size = 0.4),
-                                             order = 2, direction = "horizontal")) +
+  scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   scale_y_log10() +
   xlab(NULL) +
   ylab("Score") +
@@ -355,9 +351,9 @@ minor_breaks <- c(-10^(2:-3), 0, 10^(-3:1))
 my_labels <- c("-100", "-1", "-0.01", "0", "0.01", "1")
 
 temp_plot <- ggplot(diff_scores) +
-  geom_vline(data = filter(diff_scores, earthquake > 0),
-             aes(xintercept = X, linetype = "Obs. earthquakes"),
-             alpha = 0.3, color = "gray", size = 0.3) +
+  geom_point(data = filter(diff_scores, earthquake > 0),
+             aes(x = X, y = -90, shape = "Obs. earthquakes"), color = "gray",
+             size = 0.75) +
   geom_point(aes(x = X, y = value, color = Model), size = 0.3, alpha = 0.5) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
@@ -366,10 +362,7 @@ temp_plot <- ggplot(diff_scores) +
                      labels = paste(cmp_model, "vs.", ana_models),
                      guide = guide_legend(order = 1, direction = "horizontal",
                                           override.aes = list(alpha = 1))) +
-  scale_linetype_manual(name = NULL, values = c("Obs. earthquakes" = 1),
-                        labels = "Obs. earthquakes",
-                        guide = guide_legend(override.aes = list(alpha = 1, size = 0.4),
-                                             order = 2, direction = "horizontal")) +
+  scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
   xlab(NULL) +
@@ -877,4 +870,5 @@ combine <- grid.arrange(collect_recal_plots[[1]],
 file_path <- file.path(fpath, "Fig8_ReliabilityDiagram.pdf")
 ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine)
 
-rm(combine, collect_recal_plots, col_ecdfs, collect_stats, recal_models)
+rm(combine, collect_recal_plots, col_ecdfs, collect_stats, recal_models,
+   inset_histograms, mean_ecdf, col_ecdfs, main_plot)
