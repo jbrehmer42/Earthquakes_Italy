@@ -321,7 +321,7 @@ score_plot <- ggplot(scores_long) +
                      limits = c(0, nrow(scores))) +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(order = 1, direction = "horizontal",
-                                          override.aes = list(alpha = 1))) +
+                                          override.aes = list(alpha = 1, size = 0.75))) +
   scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   scale_y_log10() +
   xlab(NULL) +
@@ -361,7 +361,7 @@ temp_plot <- ggplot(diff_scores) +
   scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
                      labels = paste(cmp_model, "vs.", ana_models),
                      guide = guide_legend(order = 1, direction = "horizontal",
-                                          override.aes = list(alpha = 1))) +
+                                          override.aes = list(alpha = 1, size = 0.75))) +
   scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
