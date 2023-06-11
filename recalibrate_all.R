@@ -296,7 +296,7 @@ my_labeller <- function(l) paste(l)
 #
 # rough runtime durations with n_resamples = 5 averaged over the models
 #       (1)   (2)   (3)   (4)   (5)
-# (A)   3min  60s   45s   60s   2min
+# (A)   100s  60s   45s   60s   2min
 # (B)   6min  -     -     -     5min
 
 # (B2, B3, B4) is computationally not possible, as we are fitting #cells isotonic

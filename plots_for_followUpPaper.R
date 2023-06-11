@@ -34,6 +34,7 @@ my_theme <- list(
         panel.grid.minor = element_line(size = 0.05),
         legend.text = element_text(size = 8),
         legend.title = element_text(size = 8),
+        legend.key.size = unit(5, "mm"),
         plot.title = element_text(size = title_size),
         strip.background = element_blank())
 )
@@ -157,7 +158,7 @@ temp_plot <- pred_by_day %>%
   xlab(NULL) +
   ylab("Predicted mean") +
   labs(subtitle = "For all of Italy") +
-  annotate(geom = "text", label = "*", x = i_time, y = 0.14, size = 3,
+  annotate(geom = "text", label = "*", x = i_time, y = 0.14, size = 5,
            color = "black") +
   my_theme +
   theme(legend.position = "bottom", legend.margin = margin(0, 5.5, 5.5, 5.5))
@@ -180,7 +181,7 @@ events_by_cell <- events %>%
   select(LON, LAT, Count)
 
 spat_plot <- ggplot() +
-  facet_wrap(~factor(Model, ordered = T, levels = model_names), nrow = 2) +
+  facet_wrap(~factor(Model, ordered = T, levels = names(model_colors)), nrow = 2) +
   geom_tile(data = pred_by_cell_long, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
           size = 0.2, fill = NA) +
@@ -188,28 +189,27 @@ spat_plot <- ggplot() +
   coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
   scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  scale_fill_viridis_c(name = "Predicted mean",
+  scale_fill_viridis_c(name = "Pred.\nmean",
                        breaks = 10^(c(-9, -7, -5, -3)),
                        labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
                        trans = "log10", option = "magma", direction = -1,
                        guide = guide_colorbar(title.vjust = 0.5, order = 1)) +
-  scale_color_manual(name = "Obs. earthquakes", values = c("Obs. earthquakes" = "black"),
-                     labels = "",
-                     guide = guide_legend(keywidth = unit(5, "points"),
-                                          keyheight = unit(5, "points"),
-                                          title.vjust = 0.6, order = 2)) +
-  labs(subtitle = "For the 7-day Period Following *") +
+  # scale_color_manual(name = "Obs. earthquakes", values = c("Obs. earthquakes" = "black"),
+  #                   labels = "",
+  #                   guide = guide_legend(keywidth = unit(5, "points"),
+  #                                        keyheight = unit(5, "points"),
+  #                                        title.vjust = 0.6, order = 2)) +
+  labs(subtitle = paste0("For the 7-day Period Following ", as.character(times[i_time]),
+                         ", marked *")) +
   my_theme +
-  theme(legend.position = "bottom", legend.box.just = "left",
-        plot.margin = margin(2.5, 5.5, 5.5, 10.5),
-        legend.margin = margin(0, 5.5, 5.5, 5.5))
+  theme(legend.position = "right", plot.margin = margin(5.5, 5.5, 5.5, 11.5))
 
-combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.33, 0.67),
+combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.37, 0.63),
                         top = textGrob("Predicted Mean Number of Events",
                                        gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig2_Forecasts.pdf")
-ggsave(file_path, width = 145, height = 215, unit = "mm", plot = combine)
+ggsave(file_path, width = 145, height = 190, unit = "mm", plot = combine)
 
 rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day, temp_plot,
    spat_plot, combine)
@@ -460,7 +460,8 @@ diff_scores <- scores %>%
   mutate(LON = cells$LON, LAT = cells$LAT) %>%
   select(LON, LAT, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores$Model <- paste(cmp_model, "vs.", diff_scores$Model)
+diff_scores$Model <- factor(paste(cmp_model, "vs.", diff_scores$Model), ordered = T,
+                            levels = paste(cmp_model, "vs.", names(model_colors)))
 
 my_colors <- c("#800303", "#f51818", "#ffffff", "#057ffa")
 limits <- range(diff_scores$value)
@@ -552,7 +553,8 @@ murphy_diag <- data.frame(murphy_df) %>%
   geom_line(aes(x = theta, y = value, color = Model), size = 0.3) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors,
-                     breaks = ana_models) +
+                     breaks = ana_models,
+                     guide = guide_legend(override.aes = list(size = 0.5))) +
   xlab(expression(paste("Threshold log", theta))) +
   ylab("Elementary score") +
   my_theme +
@@ -563,7 +565,7 @@ combine <- grid.arrange(murphy_diag, nrow = 1,
                                        gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig7_MurphyDiag.pdf")
-ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine)
+ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
 
 # now look at Murphy diagram of miscalibration and discrimination component
 MCB_diag <- DSC_diag <- matrix(0, ncol = n_mods, nrow = n_theta)
@@ -623,19 +625,20 @@ murphy_score_cmps <- ggplot(df_collect) +
   facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
              nrow = 2, scales = "free_y") +
   geom_line(aes(x = log_theta, y = value, color = Model), size = 0.3) +
-  scale_color_manual(name = NULL, values = model_colors) +
+  scale_color_manual(name = NULL, values = model_colors,
+                     guide = guide_legend(override.aes = list(size = 0.5))) +
   scale_x_continuous(breaks = -4:1 * 5) +
   xlab(expression(paste("Threshold log", theta))) +
   ylab(NULL) +
   my_theme +
-  theme(legend.position = c(0.99, 0.99), legend.justification = c(1, 1))
+  theme(legend.position = c(0.99, 0.42), legend.justification = c(1, 1))
 
 combine <- grid.arrange(murphy_score_cmps, nrow = 1,
                         top = textGrob("Score Components by Elementary Score",
                                        gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig9_Murphy-MCB-DSC.pdf")
-ggsave(file_path, width = 145, height = 100, unit = "mm", plot = combine)
+ggsave(file_path, width = 145, height = 110, unit = "mm", plot = combine)
 
 # coherence checks:
 # If we integrate murphy diagram with correct measure, do we get score?
@@ -742,8 +745,8 @@ for (i in 1:length(models)) {
 }
 
 # or load already recalibrated values
-recal_models <- read.csv("./../tmp_results/recal_models_all-Tilmann-100-new.csv")
-collect_stats <- read.csv("./../tmp_results/collect_stats_new.csv")
+recal_models <- read.csv("./../tmp_results/recal_models_all-Til-100-5.csv")
+collect_stats <- read.csv("./../tmp_results/collect_stats_5.csv")
 
 col_ecdfs <- list()
 for (i in 1:length(models)) {
@@ -758,13 +761,9 @@ for (i in 1:length(models)) {
   col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"), row.names = 1)
 }
 
-collect_recal_plots <- list()
-
 # for non-aggregated data
-breaks_x <- list(c(0, 10^c(-5, 0)), c(0, 10^c(-6, -5, 0)),
-                 c(0, 10^c(-6, -5, 0)), c(0, 10^c(-5, 0)))
-breaks_y <- list(c(0, 10^c(-6, -5, -4, 0)), c(0, 10^c(-8, -7, -6, -5, -4, 0)),
-                 c(0, 10^c(-6, -5, 0)), c(0, 10^c(-6, -5, -4, 0)))
+breaks_x <- c(0, 10^c(-6, -5, 0))
+breaks_y <- c(0, 10^c(--7, -6, -5, -4, 0))
 my_labeller <- function(l) {
   labels <- character(length(l))
   labels[l > 0 & l < 1] <- paste0("1e", log(l[l > 0 & l < 1], base = 10))
@@ -773,22 +772,25 @@ my_labeller <- function(l) {
   return(labels)
 }
 
+mean_ecdf <- do.call(rbind, col_ecdfs) %>%
+  pivot_wider(id_cols = x, names_from = M, values_from = y, values_fill = NA) %>%
+  arrange(x) %>%
+  setnafill(type = "locf") %>%
+  slice(floor(seq(1, nrow(.), length.out = 10^5))) %>%   # sample on grid for plotting
+  transmute(x = x, y = rowMeans(cbind(LM, FMC, LG, SMA)))
 
+my_ecdf <- function(x) {
+  # first known values, then values we want to evaluate --> fill with last observation
+  rbind(cbind(mean_ecdf, a = -1.0), data.table(x = x, y = NA, a = 1:length(x))) %>%
+    arrange(x) %>%
+    setnafill(type = "locf") %>%
+    filter(a > 0) %>%
+    arrange(a) %>%
+    pull(y)
+}
+
+inset_histograms <- list()
 for (i in 1:length(models)) {
-  mean_ecdf <- col_ecdfs[[i]] %>%
-    slice(floor(seq(1, nrow(.), length.out = min(nrow(.), 10^5)))) %>%   # sample on grid for plotting
-    select(x, y)
-
-  my_ecdf <- function(x) {
-    # first known values, then values we want to evaluate --> fill with last observation
-    rbind(cbind(mean_ecdf, a = -1.0), data.table(x = x, y = NA, a = 1:length(x))) %>%
-      arrange(x) %>%
-      setnafill(type = "locf") %>%
-      filter(a > 0) %>%
-      arrange(a) %>%
-      pull(y)
-  }
-
   xmin <- 0.7
   xmax <- 1.0
   ymin <- 0.0
@@ -805,48 +807,41 @@ for (i in 1:length(models)) {
           axis.title = element_blank(), plot.background = element_blank(),
           panel.background = element_blank(), panel.border = element_blank(),
           panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-  inset_histograms <- layer(
+  inset_histograms[[i]] <- layer(
     data = data.frame(Model = model_names[i], x = 0), stat = StatIdentity,
     position = PositionIdentity, geom = GeomCustomAnn, inherit.aes = TRUE,
     params = list(grob = ggplotGrob(my_hist), xmin = xmin, xmax = xmax,
                   ymin = ymin, ymax = ymax))
-
-  t_breaks_y <- my_ecdf(breaks_y[[i]])
-  labels_y <- my_labeller(breaks_y[[i]])
-  t_breaks_x <- my_ecdf(breaks_x[[i]])
-  labels_x <- my_labeller(breaks_x[[i]])
-  minor_breaks <- my_ecdf(c(0, 10^(-10:0)))
-
-  main_plot <- ggplot(filter(recal_models, Model == model_names[i]),
-                      aes(x = my_ecdf(x))) +
-    facet_wrap(~Model, nrow = 1) +
-    geom_ribbon(aes(ymin = my_ecdf(lower), ymax = my_ecdf(upper), fill = Model),
-                alpha = 0.33, show.legend = FALSE) +
-    geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
-                linetype = "dashed") +
-    geom_step(aes(y = my_ecdf(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
-    scale_color_manual(values = model_colors) +
-    scale_fill_manual(values = model_colors) +
-    scale_x_continuous(breaks = t_breaks_x, labels = labels_x, minor_breaks = minor_breaks) +
-    scale_y_continuous(breaks = t_breaks_y, labels = labels_y, minor_breaks = minor_breaks) +
-    xlab(NULL) +
-    ylab(NULL) +
-    ggtitle(NULL) +
-    geom_text(data = filter(collect_stats, Model == model_names[i]),
-              mapping = aes(x = 0.02, y = 0.72, label = label),
-              size = 8 * 0.36, hjust = 0, vjust = 0) +
-    my_theme +
-    theme(aspect.ratio = 1, panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-
-  # collect_recal_plots[[i]] <- main_plot + inset_histograms
-  collect_recal_plots[[i]] <- main_plot
 }
 
-combine <- grid.arrange(collect_recal_plots[[1]],
-                        collect_recal_plots[[2]],
-                        collect_recal_plots[[3]],
-                        collect_recal_plots[[4]],
-                        nrow = 2,
+t_breaks_y <- my_ecdf(breaks_y)
+labels_y <- my_labeller(breaks_y)
+t_breaks_x <- my_ecdf(breaks_x)
+labels_x <- my_labeller(breaks_x)
+minor_breaks <- my_ecdf(c(0, 10^(-10:0)))
+
+main_plot <- ggplot(recal_models, aes(x = my_ecdf(x))) +
+  facet_wrap(~factor(Model, ordered = T, levels = names(model_colors)), nrow = 2) +
+  geom_ribbon(aes(ymin = my_ecdf(lower), ymax = my_ecdf(upper), fill = Model),
+              alpha = 0.33, show.legend = FALSE) +
+  geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
+              linetype = "dashed") +
+  geom_step(aes(y = my_ecdf(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
+  scale_color_manual(values = model_colors) +
+  scale_fill_manual(values = model_colors) +
+  scale_x_continuous(breaks = t_breaks_x, labels = labels_x, minor_breaks = minor_breaks) +
+  scale_y_continuous(breaks = t_breaks_y, labels = labels_y, minor_breaks = minor_breaks) +
+  xlab(NULL) +
+  ylab(NULL) +
+  ggtitle(NULL) +
+  geom_text(data = collect_stats, mapping = aes(x = 0.02, y = 0.66, label = label),
+            size = 7 * 0.36, hjust = 0, vjust = 0) +
+  my_theme +
+  theme(aspect.ratio = 1, panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+
+combine <- grid.arrange(main_plot + inset_histograms,
                         top = textGrob("Reliability Diagram",
                                        gp = gpar(fontsize = title_size)),
                         bottom = textGrob("Forecasted mean",
@@ -855,7 +850,7 @@ combine <- grid.arrange(collect_recal_plots[[1]],
                                        gp = gpar(fontsize = 11)))
 
 file_path <- file.path(fpath, "Fig8_ReliabilityDiagram.pdf")
-ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine)
+ggsave(file_path, width = 145, height = 115, unit = "mm", plot = combine)
 
-rm(combine, collect_recal_plots, col_ecdfs, collect_stats, recal_models,
-   inset_histograms, mean_ecdf, col_ecdfs, main_plot)
+rm(combine, col_ecdfs, collect_stats, recal_models, inset_histograms, mean_ecdf,
+   main_plot)
