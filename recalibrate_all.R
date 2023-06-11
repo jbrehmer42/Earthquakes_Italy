@@ -1,6 +1,5 @@
 library(monotone)     # for fast isotonic regression
 library(dplyr)
-library(tidyr)
 library(scales)
 library(ggplot2)
 library(gridExtra)
@@ -21,8 +20,8 @@ my_s_pois <- function(X, Y) {
 
 fpath <- "./figures_rec"
 
-model_colors <- c("FMC" = "#F8766D", "LG" = "#00BA38", "SMA" = "#619CFF",
-                  "LM" = "#DB72FB")
+model_colors <- c("FMC" = "#F8766D", "LG" = "#00BF7D",  "LM" = "#A3A500",
+                  "SMA" = "#00B0F6", "LRWA" = "#E76BF3")
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 my_theme <- list(
   theme_bw() +
@@ -47,9 +46,9 @@ filter_jumps <- function(v) {
 
 fit_isotonic_all <- function(x, y) {
   # create data table -> sort -> add isotonic fit
-  dt <- data.table(x = as.vector(x), y = as.vector(y))[
-    order(x, -y)][, x_rc := monotone(y)]
-  return(dt)
+  return(
+    data.table(x = as.vector(x), y = as.vector(y))[order(x, -y)][, x_rc := monotone(y)]
+  )
 }
 
 fit_isotonic_by_cell <- function(x, y) {
@@ -82,7 +81,6 @@ resample_residuals <- function(x, y, B, get_iso_fit) {
   for (i in 1:B) {
     y <- x + matrix(sample(as.vector(res), prod(dim(y)), replace = TRUE),
                     nrow = nrow(y), ncol = ncol(y))
-
     collect_vals[[i]] <- get_iso_fit(x, y)[
       filter_jumps(x_rc), .(x = x, x_rc = pmax(0, x_rc - mean_res), I = paste0("R", i))]
   }
@@ -131,9 +129,8 @@ resample_trans_residuals <- function(x, y, B, get_iso_fit) {
       trans$transform(x) + matrix(sample(as.vector(res), prod(dim(y)), replace = TRUE),
                                   nrow = nrow(y), ncol = ncol(y))
     )
-
     collect_vals[[i]] <- get_iso_fit(x, y)[
-      filter_jumps(x_rc), .(x = x, x_rc = pmax(0, x_rc - mean_res), I = paste0("R", i))]
+      filter_jumps(x_rc), .(x = x, x_rc = pmax(0, x_rc ), I = paste0("R", i))]
   }
   return(collect_vals)
 }
@@ -147,30 +144,32 @@ resample_adapt_ucond_distr <- function(x, y, B, get_iso_fit) {
   # the mean of our adapted distribution just corresponds to the mean forecast.
   # Having this mean calibrated forecast, we can resample y by drawing from
   # the adapted distribution.
-  # This method can not be used with fit_isotonic_by_cell
   # One Problem of this method is that for small forecasts x the according ditribution
   # puts virtally all mass in 0, i.e., resampling returns only 0's. If we would put
   # higher earthquake numbers firts to zero, then maybe the 1 would have some
   # non-negligible mass, so that resampling does not only return 1's
-  x <- as.vector(x)
-  y <- as.vector(y)
   collect_vals <- list()
 
-  t <- table(y) / length(y)
-  vals <- as.numeric(names(t))
-  f_y <- as.numeric(t)
-  eps <- sum(f_y[-1] * vals[-1]) / x - 1
-  n_split <- 5      # as not everything fits into memory, split
-  split <- ceiling(seq(1, length(y), length.out = n_split))
-  cmp <- matrix(rep(cumsum(f_y[-length(f_y)]), split[2] - split[1] + 1),
-                ncol = length(f_y) - 1, byrow = T)
+  t <- table(as.vector(y)) / prod(dim(y))
+  vals <- as.numeric(names(t))              # which values are assumed
+  f_y <- as.numeric(t)                      # with which frequencies
+  eps <- sum(f_y * vals) / as.vector(x) - 1
+  F_y <- cumsum(f_y[-length(f_y)])          # cumulative frequencies
+
+  new_y <- matrix(0L, nrow = nrow(x), ncol = ncol(x))   # y is integer-type
+  u <- matrix(0.0, nrow = nrow(x), ncol = ncol(x))      # allocate memory
   for (i in 1:B) {
-    for (j in 2:n_split) {
-      i_vec <- split[j - 1]:split[j]
-      u <- runif(length(i_vec), 0, 1 + eps[i_vec])
-      y[i_vec] <- rowSums(u - eps[i_vec] >= cmp[1:pmin(length(i_vec), nrow(cmp)), ])
+    # adapted probabilities: (f_0 + eps, f_1, ..., f_n) / (1 + eps)
+    # --> sample u ~ U(0, 1+eps) and check in which bin u falls:
+    #     y = i <=> sum_0^(i-1) f_k + eps <= u < sum_0^i f_k + eps
+    #     y = i <=> F_(i-1) <= u - eps < F_i
+    # we can drop last val of F_y as it is anyway 1 and assumed with prob. 0
+    u[] <- runif(prod(dim(x)), 0, 1 + eps) - eps # matrix is filled column-wise
+    new_y[] <- 0L    # set matrix to zero
+    for (thresh in F_y) {
+      new_y <- new_y + 1 * (u >= thresh)
     }
-    collect_vals[[i]] <- get_iso_fit(x, y)[
+    collect_vals[[i]] <- get_iso_fit(x, new_y)[
       filter_jumps(x_rc), .(x = x, x_rc = x_rc, I = paste0("R", i))]
   }
   return(collect_vals)
@@ -178,13 +177,12 @@ resample_adapt_ucond_distr <- function(x, y, B, get_iso_fit) {
 
 resample_adapt_ucond_distr_by_cell <- function(x, y, B, get_iso_fit) {
   # Adaption of resample_adapt_ucond_distr for fit_isotonic_by_cell
-
   collect_vals <- list()
 
   n_rows <- nrow(y)
   n_cols <- ncol(y)
   zero_cols <- colSums(y) == 0
-  t <- lapply(1: n_cols, function(col) {
+  t <- lapply(1:n_cols, function(col) {
     if (zero_cols[col]) {                                 # we observed always 0 earthquakes
       return(c("0" = 1 - 1 / n_rows, "1" = 1 / n_rows))   # add one 1, so that we can raise
     } else {
@@ -193,11 +191,11 @@ resample_adapt_ucond_distr_by_cell <- function(x, y, B, get_iso_fit) {
   })
   vals <- lapply(t, function(tab) as.numeric(names(tab)))   # values that are assumed
   f_y <- lapply(t, function(tab) as.numeric(tab))           # with according probabilities
-  rm(t, zero_cols)
-  eps <- lapply(1:n_cols, function(col) sum(f_y[[col]][-1] * vals[[col]][-1]) / x[, col] - 1)
+  eps <- lapply(1:n_cols, function(col) sum(f_y[[col]] * vals[[col]]) / x[, col] - 1)
+  rm(t, zero_cols, vals)
 
   for (i in 1:B) {
-    y <- do.call(cbind, lapply(1: n_cols, function(col) {
+    y <- do.call(cbind, lapply(1:n_cols, function(col) {
       u <- runif(n_rows, 0, 1 + eps[[col]])
       my_f_y <- f_y[[col]]
       return(
@@ -252,7 +250,7 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9, score = my_s_poi
 # Setting 1: Analyze all values ------------------------------------------------
 my_obs <- obs
 my_models <- models
-n_resamples <- 20
+n_resamples <- 100
 
 # only use every 7-th value, as forecasts span 7-day periods------------
 mod <- 7      # use 1 to 7
@@ -265,10 +263,11 @@ my_models <- lapply(models, function(x) x[pick, ])
 n_resamples <- 20
 
 # in any case define breaks and labels
-breaks_x <- list(c(0, 10^c(-5, 0)), c(0, 10^c(-8, -6, -5, 0)),
+breaks_x <- list(c(0, 10^c(-5, 0)), c(0, 10^c(-8, -6, -5, 0)), c(0, 10^c(-6, -5, 0)),
                  c(0, 10^c(-6, -5, 0)), c(0, 10^c(-6, -5, 0)))
 breaks_y <- list(c(0, 10^c(-6, -5, -4, 0)), c(0, 10^c(-8, -7, -6, -5, -4, 0)),
-                 c(0, 10^c(-6, -5, 0)), c(0, 10^c(-6, -5, -4, 0)))
+                 c(0, 10^c(-6, -5, 0)), c(0, 10^c(-6, -5, -4, 0)),
+                 c(0, 10^c(-6, -5, 0)))
 minor_breaks <- c(0, 10^(-10:0))
 my_labeller <- function(l) {
   labels <- character(length(l))
@@ -297,17 +296,11 @@ my_labeller <- function(l) paste(l)
 #
 # rough runtime durations with n_resamples = 5 averaged over the models
 #       (1)   (2)   (3)   (4)   (5)
-# (A)   100s  60s   45s   60s   2min
-# (B)   -     -     -     -     5min
+# (A)   3min  60s   45s   60s   2min
+# (B)   6min  -     -     -     5min
 
-# * for FMC it took 40min, probably since it issues the most different forecasts
-# (2.4 * 10^6) and in (B) we group_by forecast to reconcile forecasts from
-# different cells
-
-# (B1) is not possible as resampling discards spatial structure,
 # (B2, B3, B4) is computationally not possible, as we are fitting #cells isotonic
 # fits, and residual resampling does not produce any trivial (only 0's) cells
-# unlike (B5)
 
 pick_iso <- fit_isotonic_all        # (A)
 pick_iso <- fit_isotonic_by_cell    # (B)
@@ -436,7 +429,8 @@ combine <- grid.arrange(collect_recal_plots[[1]],
                         collect_recal_plots[[2]],
                         collect_recal_plots[[3]],
                         collect_recal_plots[[4]],
-                        nrow = 2,
+                        collect_recal_plots[[5]],
+                        nrow = 3,
                         top = textGrob("Reliability Diagram",
                                        gp = gpar(fontsize = title_size)),
                         bottom = textGrob("Forecasted mean",
@@ -444,8 +438,8 @@ combine <- grid.arrange(collect_recal_plots[[1]],
                         left = textGrob("Conditional mean", rot = 90,
                                        gp = gpar(fontsize = 11)))
 
-file_path <- file.path(fpath, "all_Til_meanTrans_100.pdf")
-ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine)
+file_path <- file.path(fpath, "all_byCell_Til_100.pdf")
+ggsave(file_path, width = 145, height = 180, unit = "mm", plot = combine)
 
 # log log scale ----------------------------------------------------------------
 main_plot <- ggplot(recal_models, aes(x = x)) +

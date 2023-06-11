@@ -16,7 +16,8 @@ dpath <- "/media/myData/EQData"
 model_files <- c("forecast_ETAS_LM_FP32.dat.xz",
                  "forecast_ETES_FCM_FP32.dat.xz",
                  "forecast_STEP_LG_FP32.dat.xz",
-                 "forecast-ensemble_SMA_FP32.dat.xz")
+                 "forecast-ensemble_SMA_FP32.dat.xz",
+                 "forecast-ensemble_LR-WA_M3+s2-1d_FP32.dat.xz")
 # Time stamps corresponding to model outputs
 # (rows of the model output data)
 time_stamps_file <- "meta_rows_dates.csv"
@@ -33,7 +34,7 @@ library(Matrix)
 source(file.path(rpath, "functions_prep.R"))
 
 # Set model names and their colors
-model_names <- c("LM", "FMC", "LG", "SMA")
+model_names <- c("LM", "FMC", "LG", "SMA", "LRWA")
 model_colors <- c("black", "darkgreen", "blue", "red")
 # Define last day where model evaluation is possible (needed
 # because we treat 7-day periods)

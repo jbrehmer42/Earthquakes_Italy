@@ -14,8 +14,9 @@ library(scales)           # trans_new - custom data transformation
 source("data_prep.R")
 source("functions_eval.R")    # for elementary score
 
-model_colors <- c("FMC" = "#F8766D", "LG" = "#00BA38", "SMA" = "#619CFF",
-                  "LM" = "#DB72FB")
+# use standard colors of ggplot for discrete variables
+model_colors <- c("FMC" = "#F8766D", "LG" = "#00BF7D",  "LM" = "#A3A500",
+                  "SMA" = "#00B0F6", "LRWA" = "#E76BF3")
 
 cmp_model <- "LM"
 cmp_m <- sym(cmp_model)
@@ -23,7 +24,7 @@ ana_models <- model_names[model_names != cmp_model]
 
 new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
-fpath <- "./figures3"
+fpath <- "./figures4"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -151,7 +152,7 @@ temp_plot <- pred_by_day %>%
   scale_x_continuous(breaks = pred_by_day$X[new_year], labels = year(times[new_year])) +
   scale_y_log10() +
   scale_color_manual(name = NULL, values = model_colors,
-                     guide = guide_legend(override.aes = list(size = 0.5))) +
+                     guide = guide_legend(override.aes = list(size = 0.5), order = 1)) +
   scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   xlab(NULL) +
   ylab("Predicted mean") +
@@ -179,7 +180,7 @@ events_by_cell <- events %>%
   select(LON, LAT, Count)
 
 spat_plot <- ggplot() +
-  facet_wrap(~Model, nrow = 1) +
+  facet_wrap(~factor(Model, ordered = T, levels = model_names), nrow = 2) +
   geom_tile(data = pred_by_cell_long, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
           size = 0.2, fill = NA) +
@@ -203,12 +204,12 @@ spat_plot <- ggplot() +
         plot.margin = margin(2.5, 5.5, 5.5, 10.5),
         legend.margin = margin(0, 5.5, 5.5, 5.5))
 
-combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.45, 0.55),
+combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.33, 0.67),
                         top = textGrob("Predicted Mean Number of Events",
                                        gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig2_Forecasts.pdf")
-ggsave(file_path, width = 145, height = 138, unit = "mm", plot = combine)
+ggsave(file_path, width = 145, height = 215, unit = "mm", plot = combine)
 
 rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day, temp_plot,
    spat_plot, combine)
@@ -254,7 +255,7 @@ for (i in 1:length(models)) {
   t1[i, "spatial"] <- mean(rowSums(s_pois(models[[i]] / x_t, obs))) - 1
 }
 t1
-write.csv(t1, "./../tmp_results/Table1.csv")
+write.csv(t1, file.path(fpath, "Table1.csv"))
 
 file_path <- file.path(fpath, "Table1.tex")
 make_bold <- rownames(t1)[apply(t1, 2, which.min)]
@@ -291,7 +292,7 @@ for (i in 1:length(models)) {
   }
 }
 t2
-write.csv(t2, "./../tmp_results/Table2.csv")
+write.csv(t2, file.path(fpath, "Table2.csv"))
 
 file_path <- file.path(fpath, "Table2.tex")
 c_names <- c("quad", "MCB", "DSC", "UNC", "pois", "MCB", "DSC", "UNC")
@@ -358,8 +359,7 @@ temp_plot <- ggplot(diff_scores) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
-  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
-                     labels = paste(cmp_model, "vs.", ana_models),
+  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors, breaks = ana_models,
                      guide = guide_legend(order = 1, direction = "horizontal",
                                           override.aes = list(alpha = 1, size = 0.75))) +
   scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
@@ -390,27 +390,12 @@ scores_n <- do.call(
 scores_n <- data.frame(scores_n)
 colnames(scores_n) <- model_names
 
-diff_scores <- scores_n %>%
+diff_scores_n <- scores_n %>%
   mutate(X = 1:nrow(.)) %>%
   filter(rowSums(obs) > 0) %>%
   mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
   select(X, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
-
-number_plot <- ggplot(diff_scores) +
-  geom_point(aes(x = X, y = value, color = Model), size = 0.75) +
-  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
-  scale_x_continuous(breaks = which(new_year), labels = year(times[new_year]),
-                     limits = c(0, nrow(scores_n))) +
-  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
-                     labels = paste(cmp_model, "vs.", ana_models)) +
-  scale_y_continuous(limits = c(-20, NA)) +
-  xlab(NULL) +
-  ylab(NULL) +
-  labs(subtitle = "Number component") +
-  my_theme +
-  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0),
-        plot.margin = margin(5.5, 5.5, 5.5, 5.5))
 
 # score of normalized mean predicted number of earthquakes
 scores_s <- do.call(
@@ -423,29 +408,31 @@ scores_s <- do.call(
 scores_s <- data.frame(scores_s)
 colnames(scores_s) <- model_names
 
-diff_scores <- scores_s %>%
+diff_scores_s <- scores_s %>%
   mutate(X = 1:nrow(.)) %>%
   filter(rowSums(obs) > 0) %>%
   mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
   select(X, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
 
-spatial_plot <- ggplot(diff_scores) +
-  geom_point(aes(x = X, y = value, color = Model), size = 0.75, show.legend = F) +
+number_spatial_plot <- ggplot(rbind(cbind(diff_scores_n, C = "Number component"),
+                                    cbind(diff_scores_s, C = "Spatial component"))) +
+  facet_wrap(~C, nrow = 2) +
+  geom_point(aes(x = X, y = value, color = Model), size = 0.75, alpha = 0.5) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = which(new_year), labels = year(times[new_year]),
                      limits = c(0, nrow(scores_s))) +
-  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
-                     labels = paste(cmp_model, "vs.", ana_models)) +
-  scale_y_continuous(limits = c(-20, NA)) +
+  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors,
+                     breaks = ana_models,
+                     guide = guide_legend(override.aes = list(alpha = 1, size = 0.75)))+
+  scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
+                     minor_breaks = minor_breaks) +
   xlab(NULL) +
   ylab(NULL) +
-  labs(subtitle = "Spatial component") +
   my_theme +
-  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0),
-        plot.margin = margin(5.5, 5.5, 5.5, 5.5))
+  theme(legend.position = "bottom")
 
-combine_plots <- grid.arrange(number_plot, spatial_plot, nrow = 2,
+combine_plots <- grid.arrange(number_spatial_plot,
                               top = textGrob("Daily Poisson Score Differences",
                                              gp = gpar(fontsize = title_size)),
                               left = textGrob("Score difference", rot = 90,
@@ -458,7 +445,7 @@ ggsave(file_path, width = 145, height = 135, unit = "mm", plot = combine_plots)
 colMeans(scores_n)
 colMeans(scores_s)
 
-rm(scores_n, diff_scores, number_plot, scores_s, spatial_plot, combine_plots)
+rm(scores_n, diff_scores_n, scores_s, diff_scores_s, number_spatial_plot, combine_plots)
 
 ################################################################################
 # Visualize Poisson score differences spatially
@@ -498,7 +485,7 @@ eq_loc <- events %>%
   select(LON, LAT, Count)
 
 spat_plot <- ggplot() +
-  facet_grid(~Model) +
+  facet_wrap(~Model, nrow = 2) +
   geom_tile(data = diff_scores,
             aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
   geom_tile(data = eq_loc, aes(x = LON, y = LAT, color = "Obs. earthquakes"),
@@ -524,7 +511,7 @@ combine_plots <- grid.arrange(spat_plot, nrow = 1,
                               top = textGrob("Average Poisson Score Differences by Grid Cell",
                                              gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, "Fig6_ScoreDiffSpat.pdf")
-ggsave(file_path, width = 145, height = 90, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine_plots)
 
 rm(scores, diff_scores, combine_plots, spat_plot, eq_loc)
 
@@ -554,7 +541,7 @@ colnames(murphy_df) <- model_names
 murphy_df <- murphy_df / n_days
 
 # or read it in
-murphy_df <- read.csv("./../tmp_results/murphy_df.csv")
+murphy_df <- read.csv(file.path(fpath, "murphy_df.csv"))
 
 murphy_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
@@ -564,8 +551,8 @@ murphy_diag <- data.frame(murphy_df) %>%
   ggplot() +
   geom_line(aes(x = theta, y = value, color = Model), size = 0.3) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
-  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
-                     labels = paste(cmp_model, "vs.", ana_models)) +
+  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors,
+                     breaks = ana_models) +
   xlab(expression(paste("Threshold log", theta))) +
   ylab("Elementary score") +
   my_theme +
@@ -630,7 +617,7 @@ df_collect <- df_collect %>%
   mutate(Type = ifelse(Type == "MCB", "Miscalibration", "Discrimination"))
 
 # or read precomputed values in
-df_collect <- read.csv("./../tmp_results/murphy-MCB-DSC_allRecal.csv")
+df_collect <- read.csv(file.path(fpath, "murphy-MCB-DSC.csv"))
 
 murphy_score_cmps <- ggplot(df_collect) +
   facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
