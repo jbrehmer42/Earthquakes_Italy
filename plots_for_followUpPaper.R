@@ -5,6 +5,7 @@ library(data.table)
 
 library(gridExtra)        # grid.arrange : put ggplots next to each other
 library(grid)             # for grobText : change text size in grid.arrange
+library(cowplot)          # for get_legend : extract legend from plot
 library(monotone)         # for fast isotonic regression
 library(sf)               # st_as_sf : convert data.frame to geographic format sf
 library(rnaturalearth)    # ne_countries - to load country data
@@ -74,7 +75,10 @@ europe <- ne_countries(scale = "medium", returnclass = "sf")
 
 m_high <- "#500000"   # old dark red "#5e0306"
 m_low <- "#fc474d"
-mag_colors <- seq_gradient_pal(m_low, m_high, "Lab")(seq(0,1,length.out=6))
+eps <- 0.001
+my_breaks <- c(4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0) - eps
+n_breaks <- length(my_breaks) - 1
+mag_colors <- seq_gradient_pal(m_low, m_high, "Lab")(seq(0,1,length.out=n_breaks))
 
 # scale size maps 4 to area = 4, but we want to scale it a bit down
 size_trans <- trans_new(
@@ -96,32 +100,53 @@ eq_map <- ggplot() +
   scale_y_continuous(name = NULL) +
   scale_color_gradient(low = m_low, high = m_high) +
   scale_size(range = new_range, trans = size_trans) +
-  guides(color = "none", size = guide_legend(title = "Magnitude",
-                                             override.aes = list(color = mag_colors))) +
+  guides(color = "none", size = "none") +
   my_theme +
   theme(panel.background = element_rect(fill = rgb(0.012, 0.663, 0.988, 0.3)),
         legend.text = element_text(size = 7))
 
-my_breaks <- c(4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 10.0)
-eq_count <- events %>%
-  group_by(MAG = sapply(MAG, function(m) sum(m >= my_breaks))) %>%
-  summarise(count = n(), .groups = "drop") %>%
-  mutate(MAG = factor(my_breaks[MAG], ordered = T, levels = rev(my_breaks))) %>%
+eq_hist <- events %>%
+  mutate(Bin = paste(sapply(MAG, function(m) sum(m >= my_breaks)))) %>%
   ggplot() +
-  geom_col(aes(y = MAG, x = count, fill = MAG), alpha = 0.95, show.legend = F) +
-  scale_fill_manual(values = setNames(mag_colors, my_breaks[-length(my_breaks)])) +
-  scale_x_log10(name = "Count") +
-  scale_y_discrete(labels = NULL) +
-  ylab(NULL) +
+  geom_histogram(aes(x = MAG, fill = Bin), breaks = my_breaks,
+                 show.legend = F) +
+  # last bin has 1 observations that is not displayed due to log10 transformation
+  # --> display it manually
+  geom_segment(x = my_breaks[n_breaks], xend = my_breaks[n_breaks + 1],
+             y = 0.008, yend = 0.008, color = mag_colors[n_breaks], size = 0.3) +
+  scale_fill_manual(values = setNames(mag_colors, 1:n_breaks)) +
+  scale_y_log10(name = NULL) +
+  scale_x_continuous(name = NULL, breaks = my_breaks + eps) +
   theme_classic(base_size = 8) +
-  theme(axis.title = element_text(size = 7), plot.background = element_blank())
+  ggtitle("Magnitude") +
+  theme(axis.title = element_text(size = 7), plot.background = element_blank(),
+        plot.title = element_text(size = 8))
+
+x_start <- 0.7
+x_end <- 1
+y_start <- 0.26
+y_end <- 0.76
+annotate_symbols <- data.frame(x = seq(x_start + 0.038, x_end - 0.001,
+                                       length.out = n_breaks + 2)[c(-1, -n_breaks - 2)],
+                               y = y_start - 0.02, g = factor(1:n_breaks),
+                               size = (my_breaks[-1] + my_breaks[-length(my_breaks)]) / 2)
+
+# use scale_color, scale_size
 
 combine <- ggplot() +
   # set axis limits
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = F) +
+  geom_point(data = annotate_symbols, aes(x = x, y = y, color = g, size = size),
+             shape = 13, stroke = 0.3, show.legend = F) +
+  scale_color_manual(values = mag_colors) +
+  scale_size(range = new_range, trans = size_trans) +
   annotation_custom(ggplotGrob(eq_map), xmin = 0, xmax = 0.8, ymin = 0, ymax = 1) +
-  annotation_custom(ggplotGrob(eq_count), xmin = 0.75, xmax = 1, ymin = 0.21, ymax = 0.73) +
-  theme(panel.background = element_rect("white"))
+  annotation_custom(ggplotGrob(eq_hist), xmin = x_start, xmax = x_end, ymin = y_start,
+                    ymax = y_end) +
+  annotate("text", label = "Count", size = 2.5, x = 0.97, y = 0.5, angle = 90) +
+  theme(panel.background = element_rect("white"), axis.line = element_blank(),
+        axis.text = element_blank(), axis.ticks = element_blank(),
+        axis.title = element_blank())
 
 finish <- grid.arrange(combine,
                        top = textGrob("Earthquakes in Italy",
@@ -156,7 +181,7 @@ temp_plot <- pred_by_day %>%
                      guide = guide_legend(override.aes = list(size = 0.5), order = 1)) +
   scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   xlab(NULL) +
-  ylab("Predicted mean") +
+  ylab("Pred. mean") +
   labs(subtitle = "For all of Italy") +
   annotate(geom = "text", label = "*", x = i_time, y = 0.14, size = 5,
            color = "black") +
@@ -180,29 +205,49 @@ events_by_cell <- events %>%
   left_join(cells, by = "N") %>%
   select(LON, LAT, Count)
 
-spat_plot <- ggplot() +
-  facet_wrap(~factor(Model, ordered = T, levels = names(model_colors)), nrow = 2) +
-  geom_tile(data = pred_by_cell_long, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
-  geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
-          size = 0.2, fill = NA) +
-  # geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs. earthquakes"), fill = NA) +
-  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
-  scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
-  scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  scale_fill_viridis_c(name = "Pred.\nmean",
-                       breaks = 10^(c(-9, -7, -5, -3)),
-                       labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
-                       trans = "log10", option = "magma", direction = -1,
-                       guide = guide_colorbar(title.vjust = 0.5, order = 1)) +
-  # scale_color_manual(name = "Obs. earthquakes", values = c("Obs. earthquakes" = "black"),
-  #                   labels = "",
-  #                   guide = guide_legend(keywidth = unit(5, "points"),
-  #                                        keyheight = unit(5, "points"),
-  #                                        title.vjust = 0.6, order = 2)) +
-  labs(subtitle = paste0("For the 7-day Period Following ", as.character(times[i_time]),
-                         ", marked *")) +
-  my_theme +
-  theme(legend.position = "right", plot.margin = margin(5.5, 5.5, 5.5, 11.5))
+# to center align plots in facet_wrap: make plot for each row and combine them
+# with grid.arrange
+cb_limits <- range(pred_by_cell_long$value)   # colorbar limits
+
+create_row <- function(row, only_legend = F) {
+  pred_dt <- filter(pred_by_cell_long, Model %in% row)
+  pl <- ggplot() +
+    facet_wrap(~factor(Model, ordered = T, levels = row), nrow = 1) +
+    geom_tile(data = pred_dt, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
+    geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
+            size = 0.2, fill = NA) +
+    geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs. earthquakes"),
+              fill = NA) +
+    coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
+    scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
+    scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
+    scale_fill_viridis_c(name = "Pred.\nmean",
+                        breaks = 10^(c(-9, -7, -5, -3)), limits = cb_limits,
+                        labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
+                        trans = "log10", option = "magma", direction = -1,
+                        guide = guide_colorbar(order = 1)) +
+    scale_color_manual(name = "Obs.\nearth-\nquakes", values = c("Obs. earthquakes" = "black"),
+                       labels = "",
+                       guide = guide_legend(keywidth = unit(5, "points"),
+                                            keyheight = unit(5, "points"),
+                                            order = 2)) +
+    my_theme +
+    theme(legend.position = "right", plot.margin = margin(5.5, 5.5, 5.5, 11.5))
+  if (only_legend) {
+    return(get_legend(pl))        # only show legend
+  } else {
+    return(pl + guides(fill = "none", color = "none"))    # don't show legend
+  }
+}
+
+spat_subtitle <- paste0("For the 7-day Period Following ", as.character(times[i_time]),
+                        ", marked *")
+spat_plot <- grid.arrange(create_row(c("FMC", "LG", "LM")), create_row(c("SMA", "LRWA")),
+                          nrow = 2)
+spat_plot <- grid.arrange(spat_plot, create_row(model_names, only_legend = T), nrow = 1,
+                          widths = c(0.85, 0.15),
+                          top = textGrob(spat_subtitle, x = unit(0.09, "npc"),
+                                         hjust = 0, gp = gpar(fontsize = 11)))
 
 combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.37, 0.63),
                         top = textGrob("Predicted Mean Number of Events",
@@ -212,7 +257,7 @@ file_path <- file.path(fpath, "Fig2_Forecasts.pdf")
 ggsave(file_path, width = 145, height = 190, unit = "mm", plot = combine)
 
 rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day, temp_plot,
-   spat_plot, combine)
+   spat_plot, combine, create_row)
 
 ################################################################################
 # Tables: Calculate Scores
@@ -332,7 +377,7 @@ score_plot <- ggplot(scores_long) +
   theme(legend.position = "bottom", legend.box = "horizontal")
 
 combine_plots <- grid.arrange(score_plot, nrow = 1,
-                              top = textGrob("Poisson Scores By Day",
+                              top = textGrob("Poisson Scores by Day",
                                              gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, "Fig3_DailyScores.pdf")
 ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine_plots)
@@ -366,13 +411,13 @@ temp_plot <- ggplot(diff_scores) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
   xlab(NULL) +
-  ylab("Score difference") +
+  ylab("Difference") +
   ggtitle(NULL) +
   my_theme +
   theme(legend.position = "bottom", legend.box = "horizontal")
 
 combine_plots <- grid.arrange(temp_plot, nrow = 1,
-                              top = textGrob("Poisson Score Differences By Day",
+                              top = textGrob("Poisson Score Differences by Day",
                                              gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, "Fig4_ScoreDiffTemp.pdf")
 ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine_plots)
@@ -417,7 +462,7 @@ diff_scores_s <- scores_s %>%
 
 number_spatial_plot <- ggplot(rbind(cbind(diff_scores_n, C = "Number component"),
                                     cbind(diff_scores_s, C = "Spatial component"))) +
-  facet_wrap(~C, nrow = 2) +
+  facet_wrap(~C, nrow = 2, scales = "free_y") +
   geom_point(aes(x = X, y = value, color = Model), size = 0.75, alpha = 0.5) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = which(new_year), labels = year(times[new_year]),
@@ -425,17 +470,16 @@ number_spatial_plot <- ggplot(rbind(cbind(diff_scores_n, C = "Number component")
   scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors,
                      breaks = ana_models,
                      guide = guide_legend(override.aes = list(alpha = 1, size = 0.75)))+
-  scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
-                     minor_breaks = minor_breaks) +
+  scale_y_continuous(limits = c(-20, NA)) +
   xlab(NULL) +
   ylab(NULL) +
   my_theme +
   theme(legend.position = "bottom")
 
 combine_plots <- grid.arrange(number_spatial_plot,
-                              top = textGrob("Daily Poisson Score Differences",
+                              top = textGrob("Poisson Score Differences by Day",
                                              gp = gpar(fontsize = title_size)),
-                              left = textGrob("Score difference", rot = 90,
+                              left = textGrob("Difference", rot = 90,
                                               gp = gpar(fontsize = 11)))
 
 file_path <- file.path(fpath, "Fig5_NumberSpatials.pdf")
@@ -745,8 +789,8 @@ for (i in 1:length(models)) {
 }
 
 # or load already recalibrated values
-recal_models <- read.csv("./../tmp_results/recal_models_all-Til-100-5.csv")
-collect_stats <- read.csv("./../tmp_results/collect_stats_5.csv")
+recal_models <- read.csv("./../tmp_results/recal_models_all-Til-100-5.csv", row.names = 1)
+collect_stats <- read.csv("./../tmp_results/collect_stats_5.csv", row.names = 1)
 
 col_ecdfs <- list()
 for (i in 1:length(models)) {
@@ -761,9 +805,6 @@ for (i in 1:length(models)) {
   col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"), row.names = 1)
 }
 
-# for non-aggregated data
-breaks_x <- c(0, 10^c(-6, -5, 0))
-breaks_y <- c(0, 10^c(--7, -6, -5, -4, 0))
 my_labeller <- function(l) {
   labels <- character(length(l))
   labels[l > 0 & l < 1] <- paste0("1e", log(l[l > 0 & l < 1], base = 10))
@@ -814,34 +855,46 @@ for (i in 1:length(models)) {
                   ymin = ymin, ymax = ymax))
 }
 
+breaks_x <- c(0, 10^c(-6, -5, 0))
+breaks_y <- c(0, 10^c(-7, -6, -5, -4, 0))
 t_breaks_y <- my_ecdf(breaks_y)
 labels_y <- my_labeller(breaks_y)
 t_breaks_x <- my_ecdf(breaks_x)
 labels_x <- my_labeller(breaks_x)
-minor_breaks <- my_ecdf(c(0, 10^(-10:0)))
 
-main_plot <- ggplot(recal_models, aes(x = my_ecdf(x))) +
-  facet_wrap(~factor(Model, ordered = T, levels = names(model_colors)), nrow = 2) +
-  geom_ribbon(aes(ymin = my_ecdf(lower), ymax = my_ecdf(upper), fill = Model),
-              alpha = 0.33, show.legend = FALSE) +
-  geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
-              linetype = "dashed") +
-  geom_step(aes(y = my_ecdf(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
-  scale_color_manual(values = model_colors) +
-  scale_fill_manual(values = model_colors) +
-  scale_x_continuous(breaks = t_breaks_x, labels = labels_x, minor_breaks = minor_breaks) +
-  scale_y_continuous(breaks = t_breaks_y, labels = labels_y, minor_breaks = minor_breaks) +
-  xlab(NULL) +
-  ylab(NULL) +
-  ggtitle(NULL) +
-  geom_text(data = collect_stats, mapping = aes(x = 0.02, y = 0.66, label = label),
-            size = 7 * 0.36, hjust = 0, vjust = 0) +
-  my_theme +
-  theme(aspect.ratio = 1, panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank())
+# specify rows separately to center align bottom row
+rows <- list(c("FMC", "LG", "LM"), c("SMA", "LRWA"))
+
+create_row <- function(row) {
+  dt_recal <- filter(recal_models, Model %in% row)
+  dt_stats <- filter(collect_stats, Model %in% row)
+
+  return(
+    ggplot(dt_recal, aes(x = my_ecdf(x))) +
+      facet_wrap(~factor(Model, ordered = T, levels = row), nrow = 1) +
+      geom_ribbon(aes(ymin = my_ecdf(lower), ymax = my_ecdf(upper), fill = Model),
+                  alpha = 0.33, show.legend = FALSE) +
+      geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
+                  linetype = "dashed") +
+      geom_step(aes(y = my_ecdf(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
+      scale_color_manual(values = model_colors) +
+      scale_fill_manual(values = model_colors) +
+      scale_x_continuous(breaks = t_breaks_x, labels = labels_x) +
+      scale_y_continuous(breaks = t_breaks_y, labels = labels_y) +
+      xlab(NULL) +
+      ylab(NULL) +
+      ggtitle(NULL) +
+      geom_text(data = dt_stats, mapping = aes(x = 0.02, y = 0.64, label = label),
+                size = 7 * 0.36, hjust = 0, vjust = 0) +
+      my_theme +
+      theme(aspect.ratio = 1, panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(), plot.margin = margin(5.5, 3, 5.5, 3))
+  )
+}
 
 
-combine <- grid.arrange(main_plot + inset_histograms,
+combine <- grid.arrange(create_row(rows[[1]]) + inset_histograms[which(model_names %in% rows[[1]])],
+                        create_row(rows[[2]]) + inset_histograms[which(model_names %in% rows[[2]])],
                         top = textGrob("Reliability Diagram",
                                        gp = gpar(fontsize = title_size)),
                         bottom = textGrob("Forecasted mean",
@@ -849,8 +902,31 @@ combine <- grid.arrange(main_plot + inset_histograms,
                         left = textGrob("Conditional mean", rot = 90,
                                        gp = gpar(fontsize = 11)))
 
+# create small hist to describe functionality of inset histogram pictogram like
+small_hist <- ggplot(data.table(x = rep(my_breaks[-1], 1:(length(my_breaks) - 1)))) +
+    geom_histogram(aes(x = x), fill = "gray", col = "black", size = 0.2,
+                   breaks = my_breaks, alpha = 0.5) +
+    theme_classic(base_size = 5.5) +
+    theme(axis.line.y = element_blank(),
+          axis.text = element_blank(), axis.ticks = element_blank(),
+          axis.title = element_blank(), plot.background = element_blank(),
+          panel.background = element_blank(), panel.border = element_blank(),
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+finish <- ggplot() +
+  # set axis limits
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = F) +
+  annotation_custom(combine, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+  annotation_custom(ggplotGrob(small_hist), xmin = 0.89, xmax = 0.97, ymin = 0.22, ymax = 0.3) +
+  annotate("text", x = 0.89, y = 0.32, label = "forecasted\nmeans\nhistogram",
+           size = 7 * 0.36, lineheight = 0.7, color = "darkgray", hjust = 0) +
+  theme(axis.line = element_blank(), axis.text = element_blank(),
+        axis.ticks = element_blank(), axis.title = element_blank(),
+        panel.background = element_rect("white"),
+        plot.margin = margin(0, 0, 0, 0))
+
 file_path <- file.path(fpath, "Fig8_ReliabilityDiagram.pdf")
-ggsave(file_path, width = 145, height = 115, unit = "mm", plot = combine)
+ggsave(file_path, width = 145, height = 125, unit = "mm", plot = finish)
 
 rm(combine, col_ecdfs, collect_stats, recal_models, inset_histograms, mean_ecdf,
-   main_plot)
+   create_row, finish, small_hist)

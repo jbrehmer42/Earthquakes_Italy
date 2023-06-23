@@ -67,7 +67,7 @@ fit_isotonic_by_cell <- function(x, y) {
   # we have for the same forecast value, possibly #cells different recalibrated values
   # --> estimate conditional averages with isotonic regression (i.e., we are estimating
   # conditional averages of conditional averages ~iterated conditional expectation)
-  # ! normal averaging destroys isonoticity as we could have ((1,2), (2,3)) and
+  # ! normal averaging destroys isotonicity as we could have ((1,2), (2,3)) and
   #  ((2, 0), (3,1)) -pointwise-avg-> ((1,2), (2,1.5), (3,1))
   recal_by_cell <- recal_by_cell[order(x, -x_rc),][, x_rc := monotone(x_rc)]
   return(recal_by_cell)
@@ -78,10 +78,11 @@ resample_residuals <- function(x, y, B, get_iso_fit) {
 
   res <- y - x
   mean_res <- mean(res)
+  new_y <- matrix(0.0, nrow = nrow(y), ncol = ncol(y))
   for (i in 1:B) {
-    y <- x + matrix(sample(as.vector(res), prod(dim(y)), replace = TRUE),
-                    nrow = nrow(y), ncol = ncol(y))
-    collect_vals[[i]] <- get_iso_fit(x, y)[
+    new_y[] <- x + matrix(sample(as.vector(res), prod(dim(y)), replace = TRUE),
+                          nrow = nrow(y), ncol = ncol(y))
+    collect_vals[[i]] <- get_iso_fit(x, new_y)[
       filter_jumps(x_rc), .(x = x, x_rc = pmax(0, x_rc - mean_res), I = paste0("R", i))]
   }
   return(collect_vals)
@@ -95,9 +96,10 @@ resample_daily_residuals <- function(x, y, B, get_iso_fit) {
   # by subtracting mean residual, accorind forecast is unconditionally and hence
   # conditionally (we assume forecast and residuals are independent) calibrated
   res <- res - matrix(rep(colMeans(res), nrow(res)), nrow(res), byrow = T)
+  new_y <- matrix(0.0, nrow = nrow(y), ncol = ncol(y))
   for (i in 1:B) {
-    y <- x + res[sample(1:nrow(res), nrow(res), replace = TRUE), ]
-    collect_vals[[i]] <- get_iso_fit(x, y)[
+    new_y[] <- x + res[sample(1:nrow(res), nrow(res), replace = TRUE), ]
+    collect_vals[[i]] <- get_iso_fit(x, new_y)[
       filter_jumps(x_rc), .(x = x, x_rc = pmax(0, x_rc), I = paste0("R", i))]
   }
   return(collect_vals)
@@ -111,9 +113,10 @@ resample_cell_residuals <- function(x, y, B, get_iso_fit) {
   # by subtracting mean residual, accorind forecast is unconditionally and hence
   # conditionally (we assume forecast and residuals are independent) calibrated
   res <- res - matrix(rep(colMeans(res), nrow(res)), nrow(res), byrow = T)
+  new_y <- matrix(0.0, nrow = nrow(y), ncol = ncol(y))
   for (i in 1:B) {
-    y <- x + apply(res, 2, function(col) sample(col, length(col), replace = T))
-    collect_vals[[i]] <- get_iso_fit(x, y)[
+    new_y[] <- x + apply(res, 2, function(col) sample(col, length(col), replace = T))
+    collect_vals[[i]] <- get_iso_fit(x, new_y)[
       filter_jumps(x_rc), .(x = x, x_rc = pmax(0, x_rc), I = paste0("R", i))]
   }
   return(collect_vals)
@@ -124,12 +127,13 @@ resample_trans_residuals <- function(x, y, B, get_iso_fit) {
   collect_vals <- list()
 
   res <- trans$transform(y) - trans$transform(x)
+  new_y <- matrix(0.0, nrow = nrow(y), ncol = ncol(y))
   for (i in 1:B) {
-    y <- trans$inverse(
+    new_y[] <- trans$inverse(
       trans$transform(x) + matrix(sample(as.vector(res), prod(dim(y)), replace = TRUE),
                                   nrow = nrow(y), ncol = ncol(y))
     )
-    collect_vals[[i]] <- get_iso_fit(x, y)[
+    collect_vals[[i]] <- get_iso_fit(x, new_y)[
       filter_jumps(x_rc), .(x = x, x_rc = pmax(0, x_rc ), I = paste0("R", i))]
   }
   return(collect_vals)
