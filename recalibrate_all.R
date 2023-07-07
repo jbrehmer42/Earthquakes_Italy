@@ -465,3 +465,199 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
 
 file_path <- file.path(fpath, "daily_resres_log.pdf")
 ggsave(file_path, width = 145, height = 160, unit = "mm", plot = main_plot)
+
+# ==============================================================================
+# Examine spatial dependence on recalibration curve
+# ==============================================================================
+
+# we can compress step function by only storing first and last value and jumps!
+filter_jumps <- function(v) {
+  n <- length(v)
+  return(c(T, v[c(-1, -n)] - v[c(-n+1, -n)] > 0, T))
+}
+
+fit_isotonic_all <- function(x, y) {
+  # create data table -> sort -> add isotonic fit
+  return(
+    data.table(x = as.vector(x), y = as.vector(y))[order(x, -y)][, x_rc := monotone(y)]
+  )
+}
+
+# calculate balls of radius r that intersect testing region with an intersection
+# of at least roughly 1/4 of their cells
+# return list of balls stored as vector of covered cells
+get_grid <- function(r) {
+  # each cell separate
+  if (r == 0) return(as.list(cells$N))
+  # all cells together (if radius is very large there is only on ball
+  if (r >= 120) return(list(cells$N))
+
+  out_list <- list()
+  x_midpoints <- seq(min(cells$X), max(cells$X), r)
+  y_midpoints <- seq(min(cells$Y), max(cells$Y), r)
+
+  r_squre <- r^2
+  # euclidian ball on discrete 2-dim grid covers so many grid points
+  # OOXOO
+  # OXXXO   e.g. if r = 1 (X: cell belongs to ball, O: cell is outside of ball)
+  # OOXOO
+  # num_of_cells <- 1 + 2 * r * (r + 1)   # number of cells of the ball
+  thresh <- 1 + r * (r + 3) / 2           # use lower corner as thresh
+  i <- 1
+  for (x in x_midpoints) {
+    for (y in y_midpoints) {
+      matches <- filter(cells, (X - x)^2 + (Y - y)^2 <= r_squre) %>% pull(N)
+
+      if (length(matches) >= thresh) {
+        out_list[[i]] <- matches
+        i <- i + 1
+      }
+    }
+  }
+  return(out_list)
+}
+
+# fit isotonic regression on each ball in l_balls separately
+get_local_fits <- function(model, l_balls) {
+  iso_fits <- lapply(1:length(l_balls), function(i) {
+    # fit isotonic regression on all cells of the ball,
+    # only save jumps to save memory, and store index of the ball
+    fit_isotonic_all(models[[model]][, l_balls[[i]]], obs[, l_balls[[i]]])[
+      filter_jumps(x_rc), .(x = x, x_rc = x_rc, G = i)]
+  })
+
+  # go through list keep non-zero fits, and compress all zero-fits into one
+  # joint zero-fit (estimate is zero function)
+  # as x_rc is increasing and >= 0, just check last value
+  nonzero <- sapply(iso_fits, function(fit) fit$x_rc[nrow(fit)] > 0)
+
+  if (any(!nonzero)) {
+    maxzero <- max(sapply(iso_fits[!nonzero], function(fit) fit$x[nrow(fit)]))
+    minzero <- min(sapply(iso_fits[!nonzero], function(fit) fit$x[1]))
+
+    compressed_fits <- iso_fits[nonzero]
+    compressed_fits[[(sum(nonzero) + 1)]] <- data.table(x = c(minzero, maxzero),
+                                                        x_rc = rep(0, 2),
+                                                        G = rep(0, 2))
+  } else {
+    compressed_fits <- iso_fits
+  }
+
+  return(do.call(rbind, compressed_fits))
+}
+
+# use averaged empirical CDFs to transform axis
+col_ecdfs <- list()
+for (i in 1:length(models)) {
+  col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"), row.names = 1)
+}
+mean_ecdf <- do.call(rbind, col_ecdfs) %>%
+  pivot_wider(id_cols = x, names_from = M, values_from = y, values_fill = NA) %>%
+  arrange(x) %>%
+  setnafill(type = "locf") %>%
+  slice(floor(seq(1, nrow(.), length.out = 10^5))) %>%   # sample on grid for plotting
+  transmute(x = x, y = rowMeans(cbind(LM, FMC, LG, SMA)))
+
+my_ecdf <- function(x) {
+  # first known values, then values we want to evaluate --> fill with last observation
+  rbind(cbind(mean_ecdf, a = -1.0), data.table(x = x, y = NA, a = 1:length(x))) %>%
+    arrange(x) %>%
+    setnafill(type = "locf") %>%
+    filter(a > 0) %>%
+    arrange(a) %>%
+    pull(y)
+}
+
+visualize_fits <- function(local_fits) {
+  show_legend <- (n_distinct(local_fits$G) <= 30)
+
+  ggplot(local_fits) +
+    geom_step(aes(x = my_ecdf(x), y = my_ecdf(x_rc), color = factor(G)),
+              show.legend = show_legend,
+              size = 0.4) +
+    theme_bw() +
+    theme(legend.position = "bottom")
+}
+
+
+lon_lim <- range(cells$LON)
+lat_lim <- range(cells$LAT)
+italy <- filter(ne_countries(scale = "medium", returnclass = "sf"), name == "Italy")
+
+visualize_balls <- function(l_balls, radius, add_legend = T) {
+  balls <- do.call(rbind, lapply(1:length(l_balls), function(i) {
+    filter(cells, N %in% l_balls[[i]]) %>% select(LON, LAT) %>% mutate(G = i)
+  }))
+
+  show_legend <- (length(l_balls) <= 30) & add_legend
+
+  return(ggplot(data.frame(col = "", row = radius)) +
+    facet_grid(row~col) +
+    geom_tile(data = balls, aes(x = LON, y = LAT, fill = factor(G)), alpha = 0.5,
+              show.legend = show_legend) +
+    geom_sf(data = italy, color = "black", fill = NA, size = 0.2) +
+    coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
+    scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
+    scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
+    theme_bw() +
+    theme(legend.position = "bottom", strip.background = element_blank())
+  )
+}
+
+r <- 10
+grid <- get_grid(r)
+visualize_balls(grid, r)
+
+local_fits <- get_local_fits(1, grid)
+visualize_fits(local_fits)
+
+
+# do joint analysis over all models and different radii
+library(gridExtra)
+
+collect_coverings <- list()
+collect_fits <- data.table()
+radii <- c(0, 5, 10, 25, 50, 100, 1000)
+for (r in 1:length(radii)) {
+  cat("\nr =", radii[r], " : ")
+  l_balls <- get_grid(radii[r])
+  collect_coverings[[r]] <- l_balls
+  for (m in 1:length(models)) {
+    cat(m)
+    new_df <- get_local_fits(m, l_balls)[, `:=`(Model = model_names[m], Radius = radii[r])]
+
+    collect_fits <- rbind(collect_fits, new_df)
+  }
+}
+
+# collect_fits <- read.csv("./../tmp_results/local_isotonic_fits.csv")
+
+create_row <- function(collect_fits, covering) {
+  r <- collect_fits$Radius[1]     # expect only one radius
+
+  map <- visualize_balls(covering, radius = r, add_legend = F)
+
+  curves <- ggplot(collect_fits) +
+    facet_wrap(~Model, nrow = 1) +
+    geom_step(aes(x = my_ecdf(x), y = my_ecdf(x_rc), color = factor(G)),
+              show.legend = F, size = 0.4) +
+    theme_bw() +
+    xlab("x") +
+    ylab("x_rc") +
+    theme(strip.background = element_blank(), aspect.ratio = 1)
+
+    return(
+      grid.arrange(curves, map, nrow = 1, widths = c(5, 1))
+    )
+}
+
+create_row(filter(collect_fits, Radius == 5), collect_coverings[[2]])
+
+# create for each radius separate plot row
+all_rows <- lapply(1:length(radii), function(r) create_row(filter(collect_fits, Radius == radii[r]), collect_coverings[[r]]))
+
+combine <- plot_grid(all_rows[[1]], all_rows[[2]], all_rows[[3]], all_rows[[4]],
+                     all_rows[[5]], all_rows[[6]], all_rows[[7]], ncol = 1)
+
+ggsave("./../test/local_isotonic_fits.pdf", width = 400, height = 650,
+       unit = "mm", plot = combine)
