@@ -443,6 +443,7 @@ diff_scores_n <- scores_n %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
 
 # score of normalized mean predicted number of earthquakes
+# divide every forecast by daily aggregated forecast (row sum)
 scores_s <- do.call(
   cbind, lapply(models, function(X) {
     row_sums <- rowSums(X)
@@ -488,6 +489,42 @@ ggsave(file_path, width = 145, height = 135, unit = "mm", plot = combine_plots)
 # check whether plots fits to overall number and spatial score
 colMeans(scores_n)
 colMeans(scores_s)
+
+# plot against number of observed earthquakes
+diff_scores_n <- scores_n %>%
+  mutate(Y = rowSums(obs)) %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  select(Y, all_of(ana_models)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model")
+diff_scores_s <- scores_s %>%
+  mutate(Y = rowSums(obs)) %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  select(Y, all_of(ana_models)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model")
+
+number_spatial_plot <- ggplot(rbind(cbind(diff_scores_n, C = "Number component"),
+                                    cbind(diff_scores_s, C = "Spatial component"))) +
+  facet_wrap(~C, nrow = 2, scales = "free_y") +
+  geom_point(aes(x = jitter(Y, amount = 0.2), y = value, color = Model), size = 0.75,
+             alpha = 0.5) +
+  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors,
+                     breaks = ana_models,
+                     guide = guide_legend(override.aes = list(alpha = 1, size = 0.75)))+
+  # scale_y_continuous(limits = c(-20, NA)) +
+  ylab(NULL) +
+  xlab("Number of obs. earthquakes") +
+  my_theme +
+  theme(legend.position = "bottom")
+
+combine_plots <- grid.arrange(number_spatial_plot,
+                              top = textGrob("Poisson Score Differences by Day",
+                                             gp = gpar(fontsize = title_size)),
+                              left = textGrob("Difference", rot = 90,
+                                              gp = gpar(fontsize = 11)))
+
+file_path <- file.path(fpath, "Fig5_NumberSpatials_2.pdf")
+ggsave(file_path, width = 145, height = 135, unit = "mm", plot = combine_plots)
 
 rm(scores_n, diff_scores_n, scores_s, diff_scores_s, number_spatial_plot, combine_plots)
 
@@ -888,7 +925,7 @@ create_row <- function(row) {
                 size = 7 * 0.36, hjust = 0, vjust = 0) +
       my_theme +
       theme(aspect.ratio = 1, panel.grid.major = element_blank(),
-            panel.grid.minor = element_blank(), plot.margin = margin(5.5, 3, 5.5, 3))
+            panel.grid.minor = element_blank(), plot.margin = margin(5.5, 3.5, 5.5, 3.5))
   )
 }
 
@@ -917,9 +954,11 @@ finish <- ggplot() +
   # set axis limits
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = F) +
   annotation_custom(combine, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
-  annotation_custom(ggplotGrob(small_hist), xmin = 0.89, xmax = 0.97, ymin = 0.22, ymax = 0.3) +
-  annotate("text", x = 0.89, y = 0.32, label = "forecasted\nmeans\nhistogram",
-           size = 7 * 0.36, lineheight = 0.7, color = "darkgray", hjust = 0) +
+  annotation_custom(ggplotGrob(small_hist), xmin = 0.88, xmax = 0.96, ymin = 0.07, ymax = 0.15) +
+  annotate("text", x = 0.92, y = 0.16, label = "Histogram",
+           size = 7 * 0.36, lineheight = 0.7, color = "darkgray") +
+  annotate("text", x = 0.92, y = 0.06, label = "Forecasted\nmean",
+           size = 7 * 0.36, lineheight = 0.7, color = "darkgray") +
   theme(axis.line = element_blank(), axis.text = element_blank(),
         axis.ticks = element_blank(), axis.title = element_blank(),
         panel.background = element_rect("white"),
