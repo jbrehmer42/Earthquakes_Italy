@@ -470,6 +470,10 @@ ggsave(file_path, width = 145, height = 160, unit = "mm", plot = main_plot)
 # Examine spatial dependence on recalibration curve
 # ==============================================================================
 
+library(tidyr)          # for pivot_wider - long / wide transformation
+library(rnaturalearth)  # for ne_countries - load italy's geographic data
+library(gridExtra)      # for grid.arrange - put ggplots next to each other
+
 # we can compress step function by only storing first and last value and jumps!
 filter_jumps <- function(v) {
   n <- length(v)
@@ -478,15 +482,18 @@ filter_jumps <- function(v) {
 
 fit_isotonic_all <- function(x, y) {
   # create data table -> sort -> add isotonic fit
-  return(
-    data.table(x = as.vector(x), y = as.vector(y))[order(x, -y)][, x_rc := monotone(y)]
-  )
+  if(all(y <= 0)) {
+    dt <- data.table(x = as.vector(x), y = as.vector(y))[order(x)][, x_rc := 0]
+  } else {
+    dt <- data.table(x = as.vector(x), y = as.vector(y))[order(x, -y)][, x_rc := monotone(y)]
+  }
+  return(dt)
 }
 
 # calculate balls of radius r that intersect testing region with an intersection
 # of at least roughly 1/4 of their cells
 # return list of balls stored as vector of covered cells
-get_grid <- function(r) {
+get_balls <- function(r) {
   # each cell separate
   if (r == 0) return(as.list(cells$N))
   # all cells together (if radius is very large there is only on ball
@@ -517,33 +524,85 @@ get_grid <- function(r) {
   return(out_list)
 }
 
-# fit isotonic regression on each ball in l_balls separately
-get_local_fits <- function(model, l_balls) {
-  iso_fits <- lapply(1:length(l_balls), function(i) {
-    # fit isotonic regression on all cells of the ball,
-    # only save jumps to save memory, and store index of the ball
-    fit_isotonic_all(models[[model]][, l_balls[[i]]], obs[, l_balls[[i]]])[
-      filter_jumps(x_rc), .(x = x, x_rc = x_rc, G = i)]
+# calculate grids of points that have distance r to each other
+get_r_distant_points <- function(r) {
+  # each cell separate
+  if (r <= 1) return(list(cells$N))
+
+  x_points <- seq(min(cells$X), max(cells$X), r)
+  y_points <- seq(min(cells$Y), max(cells$Y), r)
+
+  xy <- cbind(rep(x_points, length(y_points)), rep(y_points, each=length(x_points)))
+  # we can shift each xy grid by delta = {0, ..., r-1} x {0, ..., r-1}
+  shifts <- cbind(rep(0:(r-1), r), rep(0:(r-1), each=r))
+
+  # return for every shift the cell indices of the matched cells
+  out_list <- lapply(1:nrow(shifts), function(row) {
+    xy_shifted <- data.frame(X = xy[, 1] + shifts[row, 1], Y = xy[, 2] + shifts[row, 2])
+    return(inner_join(xy_shifted, cells, by = c("X", "Y"))$N)
   })
 
-  # go through list keep non-zero fits, and compress all zero-fits into one
-  # joint zero-fit (estimate is zero function)
-  # as x_rc is increasing and >= 0, just check last value
-  nonzero <- sapply(iso_fits, function(fit) fit$x_rc[nrow(fit)] > 0)
+  return(out_list)
+}
 
-  if (any(!nonzero)) {
-    maxzero <- max(sapply(iso_fits[!nonzero], function(fit) fit$x[nrow(fit)]))
-    minzero <- min(sapply(iso_fits[!nonzero], function(fit) fit$x[1]))
+# fit isotonic regression on each ballsubset in l_subsets separately
+get_local_fits <- function(model, l_subsets) {
+  iso_fits <- lapply(1:length(l_subsets), function(i) {
+    # fit isotonic regression on all cells of the subset,
+    # only store jumps to save memory, and store index of the ball
+    fit_isotonic_all(models[[model]][, l_subsets[[i]]], obs[, l_subsets[[i]]])[
+      filter_jumps(x_rc), .(x = x, x_rc = x_rc, G = i)]
+  })
+  return(do.call(rbind, iso_fits))
+}
 
-    compressed_fits <- iso_fits[nonzero]
-    compressed_fits[[(sum(nonzero) + 1)]] <- data.table(x = c(minzero, maxzero),
-                                                        x_rc = rep(0, 2),
-                                                        G = rep(0, 2))
-  } else {
-    compressed_fits <- iso_fits
+# average fits to get one average fit - use PAV algoorithm to get an increasing
+# average fit. First make sure that functions are defined on a joint grid, so
+# that averaging works fine
+average_fits2 <- function(collect_fits) {
+  average_iso <- function(dt) {
+    if (n_distinct(dt$G) == 1) {
+      return(dt)
+    }
+    # we need to define estimates on a joint grid, so that averaging works
+    wide <- dcast(dt, x ~ G, value.var = "x_rc", fill = NA)[order(x)]
+    # use last available observation to fill NA (step fcn!)
+    fill_first_row <- which(is.na(wide[1, ]))
+    if (length(fill_first_row > 0)) {
+      wide[1, fill_first_row] <- 0.0   # at the start step fcn.s are 0
+    }
+    fill_na <- setnafill(wide, type = "locf")
+    # pivot longer, and apply isotonic regression
+    average <- melt(fill_na, id.vars = "x", variable.name = "G_str", value.name = "x_rc")[order(x, -x_rc)][
+      , .(x = x, x_rc = monotone(x_rc), G = 0L)][filter_jumps(x_rc)]
+    return(average)
   }
+  collect_fits$Radius <- factor(collect_fits$Radius)
+  # isotonic fit on previous conditional estimates, and set Group tp 0
+  return(collect_fits[, average_iso(.SD), keyby = c("Model", "Radius")])
+}
 
-  return(do.call(rbind, compressed_fits))
+average_fits <- function(collect_fits) {
+  average_iso <- function(dt) {
+    if (n_distinct(dt$G) == 1) {
+      return(dt)
+    }
+    # we need to define estimates on a joint grid, so that averaging works
+    wide <- dcast(dt, x ~ G, value.var = "x_rc", fill = NA)[order(x)]
+    # use last available observation to fill NA (step fcn!)
+    fill_first_row <- which(is.na(wide[1, ]))
+    if (length(fill_first_row > 0)) {
+      wide[1, fill_first_row] <- 0.0   # at the start step fcn.s are 0
+    }
+    fill_na <- setnafill(wide, type = "locf")
+    # pivot longer, and apply isotonic regression
+    average <- data.table(x = fill_na$x, G = 0L, x_rc = rowMeans(fill_na[, -c("x")]))
+    return(average)
+  }
+  collect_fits$Radius <- factor(collect_fits$Radius)
+  # isotonic fit on previous conditional estimates, and set Group tp 0
+  return(collect_fits[, average_iso(data.table(x = x, G = G, x_rc = x_rc)),
+                        keyby = c("Model", "Radius")])
 }
 
 # use averaged empirical CDFs to transform axis
@@ -579,17 +638,16 @@ visualize_fits <- function(local_fits) {
     theme(legend.position = "bottom")
 }
 
-
 lon_lim <- range(cells$LON)
 lat_lim <- range(cells$LAT)
 italy <- filter(ne_countries(scale = "medium", returnclass = "sf"), name == "Italy")
 
-visualize_balls <- function(l_balls, radius, add_legend = T) {
-  balls <- do.call(rbind, lapply(1:length(l_balls), function(i) {
-    filter(cells, N %in% l_balls[[i]]) %>% select(LON, LAT) %>% mutate(G = i)
+visualize_subsets <- function(l_subsets, radius, add_legend = T) {
+  balls <- do.call(rbind, lapply(1:length(l_subsets), function(i) {
+    filter(cells, N %in% l_subsets[[i]]) %>% select(LON, LAT) %>% mutate(G = i)
   }))
 
-  show_legend <- (length(l_balls) <= 30) & add_legend
+  show_legend <- (length(l_subsets) <= 30) & add_legend
 
   return(ggplot(data.frame(col = "", row = radius)) +
     facet_grid(row~col) +
@@ -605,37 +663,16 @@ visualize_balls <- function(l_balls, radius, add_legend = T) {
 }
 
 r <- 10
-grid <- get_grid(r)
-visualize_balls(grid, r)
+grid <- get_balls(r)
+visualize_subsets(grid, r)
 
 local_fits <- get_local_fits(1, grid)
 visualize_fits(local_fits)
 
-
-# do joint analysis over all models and different radii
-library(gridExtra)
-
-collect_coverings <- list()
-collect_fits <- data.table()
-radii <- c(0, 5, 10, 25, 50, 100, 1000)
-for (r in 1:length(radii)) {
-  cat("\nr =", radii[r], " : ")
-  l_balls <- get_grid(radii[r])
-  collect_coverings[[r]] <- l_balls
-  for (m in 1:length(models)) {
-    cat(m)
-    new_df <- get_local_fits(m, l_balls)[, `:=`(Model = model_names[m], Radius = radii[r])]
-
-    collect_fits <- rbind(collect_fits, new_df)
-  }
-}
-
-# collect_fits <- read.csv("./../tmp_results/local_isotonic_fits.csv")
-
 create_row <- function(collect_fits, covering) {
   r <- collect_fits$Radius[1]     # expect only one radius
 
-  map <- visualize_balls(covering, radius = r, add_legend = F)
+  map <- visualize_subsets(covering, radius = r, add_legend = F)
 
   curves <- ggplot(collect_fits) +
     facet_wrap(~Model, nrow = 1) +
@@ -651,13 +688,72 @@ create_row <- function(collect_fits, covering) {
     )
 }
 
-create_row(filter(collect_fits, Radius == 5), collect_coverings[[2]])
+plot_averages <- function(collect_fits) {
+  plot_data <- average_fits(collect_fits)
 
-# create for each radius separate plot row
-all_rows <- lapply(1:length(radii), function(r) create_row(filter(collect_fits, Radius == radii[r]), collect_coverings[[r]]))
+  return(
+    ggplot(plot_data) +
+      facet_wrap(~Model, nrow = 2) +
+      geom_step(aes(x = my_ecdf(x), y = my_ecdf(x_rc), color = factor(Radius)), size = 0.4) +
+      theme_bw() +
+      xlab("x") +
+      ylab("x_rc") +
+      theme(strip.background = element_blank(), aspect.ratio = 1, legend.position = "bottom")
+  )
+}
 
-combine <- plot_grid(all_rows[[1]], all_rows[[2]], all_rows[[3]], all_rows[[4]],
-                     all_rows[[5]], all_rows[[6]], all_rows[[7]], ncol = 1)
+get_fits <- function(radii, get_subsets) {
+  collect_coverings <- list()
+  collect_fits <- data.table()
 
-ggsave("./../test/local_isotonic_fits.pdf", width = 400, height = 650,
+  for (r in 1:length(radii)) {
+    cat("\nr =", radii[r], " : ")
+    l_balls <- get_subsets(radii[r])
+    collect_coverings[[r]] <- l_balls
+    for (m in 1:length(models)) {
+      cat(m)
+      new_df <- get_local_fits(m, l_balls)[, `:=`(Model = model_names[m], Radius = radii[r])]
+
+      collect_fits <- rbind(collect_fits, new_df)
+    }
+  }
+  return(list(fits = collect_fits, coverings = collect_coverings))
+}
+
+# look at local fits on balls of different radii -------------------------------
+radii <- c(0, 5, 10, 25, 50, 100, 1000)
+result <- get_fits(radii, get_balls)
+collect_fits <- result$fits
+collect_coverings <- result$coverings
+#collect_fits <- data.table(read.csv("./../tmp_results/local_isotonic_fits.csv", row.names = 1))
+all_rows <- lapply(1:length(radii), function(r) create_row(filter(collect_fits, Radius == radii[r]),
+                                                           collect_coverings[[r]]))
+
+combine <- grid.arrange(all_rows[[1]], all_rows[[2]], all_rows[[3]], all_rows[[4]],
+                        all_rows[[5]], all_rows[[6]], all_rows[[7]], ncol = 1)
+
+ggsave("./../test/iso_fits-local.pdf", width = 400, height = 650,
        unit = "mm", plot = combine)
+
+plot_averages(collect_fits)
+ggsave("./../test/iso_fits-local-avg.pdf", width = 300, height = 200,
+       unit = "mm")
+
+# look at fits of r "dispersed" data, i.e., data points with r distance --------
+radii <- c(1, 3, 6, 10, 15, 20)
+result <- get_fits(radii, get_r_distant_points)
+collect_fits <- result$fits
+collect_coverings <- result$coverings
+#collect_fits <- data.table(read.csv("./../tmp_results/distant_isotonic_fits.csv", row.names = 1))
+all_rows <- lapply(1:length(radii), function(r) create_row(filter(collect_fits, Radius == radii[r]),
+                                                           collect_coverings[[r]]))
+
+combine <- grid.arrange(all_rows[[1]], all_rows[[2]], all_rows[[3]], all_rows[[4]],
+                        all_rows[[5]], all_rows[[6]], ncol = 1)
+
+ggsave("./../test/iso_fits-distance.pdf", width = 400, height = 600,
+       unit = "mm", plot = combine)
+
+plot_averages(collect_fits)
+ggsave("./../test/iso_fits-distance-avg.pdf", width = 300, height = 200,
+       unit = "mm")
