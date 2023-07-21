@@ -730,9 +730,10 @@ all_rows <- lapply(1:length(radii), function(r) create_row(filter(collect_fits, 
                                                            collect_coverings[[r]]))
 
 combine <- grid.arrange(all_rows[[1]], all_rows[[2]], all_rows[[3]], all_rows[[4]],
-                        all_rows[[5]], all_rows[[6]], all_rows[[7]], ncol = 1)
+                        all_rows[[5]], all_rows[[6]], all_rows[[7]], ncol = 1,
+                        top = "Local Recalibration Curves on Balls of Different Radii Covering the Whole Testing Region")
 
-ggsave("./../test/iso_fits-local.pdf", width = 400, height = 650,
+ggsave("./../test/iso_fits-local.pdf", width = 400, height = 550,
        unit = "mm", plot = combine)
 
 plot_averages(collect_fits)
