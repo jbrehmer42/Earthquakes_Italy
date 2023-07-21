@@ -25,7 +25,7 @@ ana_models <- model_names[model_names != cmp_model]
 
 new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
-fpath <- "./figures4"
+fpath <- "./figures5"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -349,7 +349,7 @@ print_tex_table(t2, c_names, c(rep(4, 4), rep(2, 4)), make_bold, file_path)
 rm(t1, t2, c_names, make_bold, x, y, ord, x_rc, s, s_rc, s_mg, j)
 
 ################################################################################
-# Visualize Poisson score differences temporally
+# Visualize Poisson score (differences) temporally
 ################################################################################
 
 scores <- do.call(cbind, lapply(models, function(X) rowSums(s_pois(X, obs))))
@@ -359,28 +359,29 @@ colnames(scores) <- c(model_names, "X", "earthquake")
 scores_long <- pivot_longer(scores, cols = all_of(model_names), names_to = "Model")
 
 score_plot <- ggplot(scores_long) +
-  geom_point(data = filter(scores, earthquake > 0),
-             aes(x = X, y = 0.15, shape = "Obs. earthquakes"), color = "gray",
+  geom_point(aes(x = X, y = value, color = Model, shape = earthquake, alpha = earthquake),
              size = 0.75) +
-  geom_point(aes(x = X, y = value, color = Model), size = 0.3, alpha = 0.5) +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
-  scale_color_manual(name = NULL, values = model_colors,
+  scale_color_manual(name = "", values = model_colors,
                      guide = guide_legend(order = 1, direction = "horizontal",
                                           override.aes = list(alpha = 1, size = 0.75))) +
-  scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
+  scale_shape_discrete(name = "earthquake", labels = c("No", "At least one"),
+                       guide = guide_legend(override.aes = list(alpha = 1, size = 1),
+                                            direction = "vertical", title.position = "right")) +
+  scale_alpha_manual(values = c("TRUE" = 0.7, "FALSE" = 0.4), guide = "none") +
   scale_y_log10() +
   xlab(NULL) +
   ylab("Score") +
   ggtitle(NULL) +
   my_theme +
-  theme(legend.position = "bottom", legend.box = "horizontal")
+  theme(legend.position = "bottom", legend.box = "horizontal", legend.box.just = "center")
 
 combine_plots <- grid.arrange(score_plot, nrow = 1,
                               top = textGrob("Poisson Scores by Day",
                                              gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, "Fig3_DailyScores.pdf")
-ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 145, height = 83, unit = "mm", plot = combine_plots)
 
 diff_scores <- scores %>%
   mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
@@ -397,30 +398,31 @@ minor_breaks <- c(-10^(2:-3), 0, 10^(-3:1))
 my_labels <- c("-100", "-1", "-0.01", "0", "0.01", "1")
 
 temp_plot <- ggplot(diff_scores) +
-  geom_point(data = filter(diff_scores, earthquake > 0),
-             aes(x = X, y = -90, shape = "Obs. earthquakes"), color = "gray",
+  geom_point(aes(x = X, y = value, color = Model, shape = earthquake, alpha = earthquake),
              size = 0.75) +
-  geom_point(aes(x = X, y = value, color = Model), size = 0.3, alpha = 0.5) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
   scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors, breaks = ana_models,
                      guide = guide_legend(order = 1, direction = "horizontal",
                                           override.aes = list(alpha = 1, size = 0.75))) +
-  scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
+  scale_shape_discrete(name = "earthquake", labels = c("No", "At least one"),
+                       guide = guide_legend(override.aes = list(alpha = 1, size = 1),
+                                            direction = "vertical", title.position = "right")) +
+  scale_alpha_manual(values = c("TRUE" = 0.7, "FALSE" = 0.4), guide = "none") +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
   xlab(NULL) +
   ylab("Difference") +
   ggtitle(NULL) +
   my_theme +
-  theme(legend.position = "bottom", legend.box = "horizontal")
+  theme(legend.position = "bottom", legend.box = "horizontal", legend.box.just = "center")
 
 combine_plots <- grid.arrange(temp_plot, nrow = 1,
                               top = textGrob("Poisson Score Differences by Day",
                                              gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, "Fig4_ScoreDiffTemp.pdf")
-ggsave(file_path, width = 145, height = 80, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 145, height = 83, unit = "mm", plot = combine_plots)
 
 rm(scores, scores_long, diff_scores, combine_plots, score_plot, temp_plot)
 
