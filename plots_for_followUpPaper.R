@@ -6,11 +6,11 @@ library(data.table)
 library(gridExtra)        # grid.arrange : put ggplots next to each other
 library(grid)             # for grobText : change text size in grid.arrange
 library(cowplot)          # for get_legend : extract legend from plot
-library(monotone)         # for fast isotonic regression
-library(sf)               # st_as_sf : convert data.frame to geographic format sf
-library(rnaturalearth)    # ne_countries - to load country data
-library(scales)           # trans_new - custom data transformation
-                          # seq_gradient_pal - custom color gradient
+library(monotone)         # for monotone : fast isotonic mean regression
+library(sf)               # for st_as_sf : convert data.frame to geographic sf format
+library(rnaturalearth)    # for ne_countries : to load country data
+library(scales)           # for trans_new : custom data transformation
+                          # for seq_gradient_pal : custom color gradient
 
 source("data_prep.R")
 source("functions_eval.R")    # for elementary score
@@ -135,8 +135,7 @@ annotate_symbols <- data.frame(x = seq(x_start + 0.038, x_end - 0.001,
                                y = y_start - 0.02, g = factor(1:n_breaks),
                                size = (my_breaks[-1] + my_breaks[-length(my_breaks)]) / 2)
 
-# use scale_color, scale_size
-
+# use scale_color, scale_size to get correct format of annotated points
 combine <- ggplot() +
   # set axis limits
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = F) +
@@ -356,8 +355,35 @@ rm(t1, t2, c_names, make_bold, x, y, ord, x_rc, s, s_rc, s_mg, j)
 # Visualize Poisson score (differences) temporally
 ################################################################################
 
+# 1 - Poisson score ------------------------------------------------------------
 scf <- s_pois
-# scf <- s_quad
+add_name <- ""
+add_title <- "Poisson"
+# transformation for difference plot
+d <- 10^3
+my_trans <- trans_new(
+  "log", function(x) sign(x) * log(abs(x) * d  + 1),
+  function(y) sign(y) / d * (exp(abs(y)) - 1)
+)
+my_breaks <- c(-10^(c(2, 0, -2)), 0, 10^(c(-2, 0)))
+minor_breaks <- c(-10^(2:-3), 0, 10^(-3:1))
+my_labels <- c("-100", "-1", "-0.01", "0", "0.01", "1")
+
+# 2 - Poisson score ------------------------------------------------------------
+scf <- s_quad
+add_name <- "_quad"
+add_title <- "Quadratic"
+# transformation for difference plot
+d <- 10^6
+my_trans <- trans_new(
+  "log", function(x) sign(x) * log(abs(x) * d  + 1),
+  function(y) sign(y) / d * (exp(abs(y)) - 1)
+)
+my_breaks <- c(-10^(c(0, -2, -4)), 0, 10^(c(-4, -2, 0)))
+minor_breaks <- c(-10^(2:-7), 0, 10^(-7:1))
+my_labels <- my_breaks
+
+# ------------------------------------------------------------------------------
 
 scores <- do.call(cbind, lapply(models, function(X) rowSums(scf(X, obs))))
 scores <- data.frame(scores) %>%
@@ -385,24 +411,15 @@ score_plot <- ggplot(scores_long) +
   theme(legend.position = "bottom", legend.box = "horizontal", legend.box.just = "center")
 
 combine_plots <- grid.arrange(score_plot, nrow = 1,
-                              top = textGrob("Poisson Scores by Day",
+                              top = textGrob(paste(add_title, "Scores by Day"),
                                              gp = gpar(fontsize = title_size)))
-file_path <- file.path(fpath, "Fig3_DailyScores.pdf")
+file_path <- file.path(fpath, paste0("Fig3_DailyScores", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 83, unit = "mm", plot = combine_plots)
 
 diff_scores <- scores %>%
   mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
   select(X, earthquake, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
-
-d2 <- 10^3
-my_trans2 <- trans_new(
-  "log", function(x) sign(x) * log(abs(x) * d2  + 1),
-  function(y) sign(y) / d2 * (exp(abs(y)) - 1)
-)
-my_breaks <- c(-10^(c(2, 0, -2)), 0, 10^(c(-2, 0)))
-minor_breaks <- c(-10^(2:-3), 0, 10^(-3:1))
-my_labels <- c("-100", "-1", "-0.01", "0", "0.01", "1")
 
 temp_plot <- ggplot(diff_scores) +
   geom_point(aes(x = X, y = value, color = Model, shape = earthquake, alpha = earthquake),
@@ -417,7 +434,7 @@ temp_plot <- ggplot(diff_scores) +
                        guide = guide_legend(override.aes = list(alpha = 1, size = 1),
                                             direction = "vertical", title.position = "right")) +
   scale_alpha_manual(values = c("TRUE" = 0.7, "FALSE" = 0.4), guide = "none") +
-  scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
+  scale_y_continuous(trans = my_trans, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
   xlab(NULL) +
   ylab("Difference") +
@@ -426,12 +443,12 @@ temp_plot <- ggplot(diff_scores) +
   theme(legend.position = "bottom", legend.box = "horizontal", legend.box.just = "center")
 
 combine_plots <- grid.arrange(temp_plot, nrow = 1,
-                              top = textGrob("Poisson Score Differences by Day",
+                              top = textGrob(paste(add_title, "Score Differences by Day"),
                                              gp = gpar(fontsize = title_size)))
-file_path <- file.path(fpath, "Fig4_ScoreDiffTemp.pdf")
+file_path <- file.path(fpath, paste0("Fig4_ScoreDiffTemp", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 83, unit = "mm", plot = combine_plots)
 
-rm(scores, scores_long, diff_scores, combine_plots, score_plot, temp_plot)
+rm(scores, scores_long, diff_scores, combine_plots, score_plot, temp_plot, my_trans)
 
 ################################################################################
 # Poisson Score: Number and spatial component
@@ -541,7 +558,34 @@ rm(scores_n, diff_scores_n, scores_s, diff_scores_s, number_spatial_plot, combin
 # Visualize Poisson score differences spatially
 ################################################################################
 
-scores <- do.call(cbind, lapply(models, function(X) colMeans(s_pois(X, obs))))
+# use log transform for positive and negative values (see ?modulus_trans)
+# but need to scale with d so that log scaling gets active (around zero the
+# transformation is the identity, but for large absolute values it is a log
+# transform
+
+# 1 - Poisson score ------------------------------------------------------------
+scf <- s_pois
+add_name <- ""
+add_title <- "Poisson"
+# transformation for difference plot
+d <- 10^5
+my_trans <- function(x) sign(x) * log(abs(x) * d  + 1)
+my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
+my_labels <- expression(-10^-2, "", -10^-4, 0, 10^-4, "")
+
+# 2 - Quadratic score ------------------------------------------------------------
+scf <- s_quad
+add_name <- "_quad"
+add_title <- "Quadratic"
+# transformation for difference plot
+d <- 10^8
+my_trans <- function(x) sign(x) * log(abs(x) * d  + 1)
+my_breaks <- c(-10^c(-3, -4, -5, -6 , -7), 0, 10^c(-7, -6, -5, -4))
+my_labels <- expression(-10^-3, "", "", -10^-6, "", 0, "", 10^-6, "", "")
+
+# ------------------------------------------------------------------------------
+
+scores <- do.call(cbind, lapply(models, function(X) colMeans(scf(X, obs))))
 scores <- data.frame(scores)
 colnames(scores) <- model_names
 
@@ -554,20 +598,8 @@ diff_scores$Model <- factor(paste(cmp_model, "vs.", diff_scores$Model), ordered 
                             levels = paste(cmp_model, "vs.", names(model_colors)))
 
 my_colors <- c("#800303", "#f51818", "#ffffff", "#057ffa")
-limits <- range(diff_scores$value)
-my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
-my_labels <- expression(-10^-2, "", -10^-4, 0, 10^-4, "")
-
-# use log transform for positive and negative values (see ?modulus_trans)
-# but need to scale with d so that log scaling gets active (around zero the
-# transformation is the identity, but for large absolute values it is a log
-# transform
-d1 <- 10^5
-my_trans <- trans_new(
-  "log", function(x) sign(x) * log(abs(x) * d1  + 1),
-  function(y) sign(y) / d1 * (exp(abs(y)) - 1)
-)
-col_breaks <- my_trans$transform(c(limits[1], -limits[2], 0, limits[2]))
+limits <- my_trans(range(diff_scores$value))
+col_breaks <- c(limits[1], -limits[2], 0, limits[2])
 
 eq_loc <- events %>%
   group_by(N) %>%
@@ -578,7 +610,7 @@ eq_loc <- events %>%
 spat_plot <- ggplot() +
   facet_wrap(~Model, nrow = 2) +
   geom_tile(data = diff_scores,
-            aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
+            aes(x = LON, y = LAT, fill = my_trans(value)), alpha = 0.5) +
   geom_tile(data = eq_loc, aes(x = LON, y = LAT, color = "Obs. earthquakes"),
             fill = NA) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", fill = NA,
@@ -587,10 +619,10 @@ spat_plot <- ggplot() +
   scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_gradientn(name = "Score\ndifference",
-                       trans = my_trans, colors = my_colors, values = rescale(col_breaks),
-                       breaks = my_breaks, labels = my_labels,
+                       colors = my_colors, values = rescale(col_breaks),
+                       breaks = my_trans(my_breaks), labels = my_labels, limits = limits,
                        guide = guide_colorbar(barwidth = unit(40, "mm"),
-                                              title.vjust = 0.9)) +
+                                              title.vjust = 0.9, order = 1)) +
   scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
@@ -598,10 +630,12 @@ spat_plot <- ggplot() +
   my_theme +
   theme(legend.position = "bottom")
 
-combine_plots <- grid.arrange(spat_plot, nrow = 1,
-                              top = textGrob("Average Poisson Score Differences by Grid Cell",
-                                             gp = gpar(fontsize = title_size)))
-file_path <- file.path(fpath, "Fig6_ScoreDiffSpat.pdf")
+combine_plots <- grid.arrange(
+  spat_plot, nrow = 1,
+  top = textGrob(paste("Average", add_title, "Score Differences by Grid Cell"),
+                 gp = gpar(fontsize = title_size))
+)
+file_path <- file.path(fpath, paste0("Fig6_ScoreDiffSpat", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine_plots)
 
 rm(scores, diff_scores, combine_plots, spat_plot, eq_loc)
@@ -859,6 +893,7 @@ my_labeller <- function(l) {
   return(labels)
 }
 
+# 1 - use averaed empirical CDF transform --------------------------------------
 mean_ecdf <- do.call(rbind, col_ecdfs) %>%
   pivot_wider(id_cols = x, names_from = M, values_from = y, values_fill = NA) %>%
   arrange(x) %>%
@@ -866,7 +901,7 @@ mean_ecdf <- do.call(rbind, col_ecdfs) %>%
   slice(floor(seq(1, nrow(.), length.out = 10^5))) %>%   # sample on grid for plotting
   transmute(x = x, y = rowMeans(cbind(LM, FMC, LG, SMA)))
 
-my_ecdf <- function(x) {
+my_trans <- function(x) {
   # first known values, then values we want to evaluate --> fill with last observation
   rbind(cbind(mean_ecdf, a = -1.0), data.table(x = x, y = NA, a = 1:length(x))) %>%
     arrange(x) %>%
@@ -875,19 +910,66 @@ my_ecdf <- function(x) {
     arrange(a) %>%
     pull(y)
 }
+# position of inset histograms
+xmin <- 0.7
+xmax <- 1.0
+ymin <- 0.0
+ymax <- 0.25
+# axis breaks and labels
+breaks <- c(0, 10^c(-7, -6, -5, -4, 0))
+t_breaks <- my_trans(breaks)
+labels <- c("0", rep("", length(breaks) - 2), "1")
+# position of score components
+text_x <- 0.02
+text_y <- 0.64
+# add to name
+add_name <- ""
+
+# 2 - use two sided log transform ----------------------------------------------
+d <- 10^9
+my_trans <- function(x) sign(x) * log(abs(x) * d  + 1)
+# position of inset histograms
+xmin <- 13.8
+xmax <- 20
+ymin <- 0.0
+ymax <- 6.9
+# axis breaks and labels
+breaks <- c(0, 10^c(-8, -6, -4, -2, 0))
+t_breaks <- my_trans(breaks)
+labels <- c("0", rep("", length(breaks) - 2), "1")
+# position of score components
+text_x <- 0.02
+text_y <- 15
+# add to name
+add_name <- "_log"
+
+# 3 - use no / standard transform ----------------------------------------------
+my_trans <- function(x) x
+# position of inset histograms
+xmin <- 3.5
+xmax <- 5.0
+ymin <- 0.05
+ymax <- 1.5
+# axis breaks and labels
+t_breaks <- seq(0, 5, length.out = 6)
+labels <- c("0", rep("", length(breaks) - 2), "5")
+# position of score components
+text_x <- 0.1
+text_y <- 3.3
+# add to name
+add_name <- "_std"
+
+# ------------------------------------------------------------------------------
+
 
 inset_histograms <- list()
+plot_min <- my_trans(min(c(recal_models$x, recal_models$lower)))
+plot_max <- my_trans(max(c(recal_models$x, recal_models$upper)))
+hist_breaks <- seq(plot_min, plot_max, length.out = 9)
 for (i in 1:length(models)) {
-  xmin <- 0.7
-  xmax <- 1.0
-  ymin <- 0.0
-  ymax <- 0.25
-
-  my_breaks <- seq(0, 1, length.out = 9)
-
   my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
-    geom_histogram(aes(x = my_ecdf(x)), fill = "gray", col = "black", size = 0.2,
-                   breaks = my_breaks) +
+    geom_histogram(aes(x = my_trans(x)), fill = "gray", col = "black", size = 0.2,
+                   breaks = hist_breaks) +
     theme_classic(base_size = 5.5) +
     theme(axis.line.y = element_blank(),
           axis.text = element_blank(), axis.ticks = element_blank(),
@@ -901,13 +983,6 @@ for (i in 1:length(models)) {
                   ymin = ymin, ymax = ymax))
 }
 
-breaks_x <- c(0, 10^c(-6, -5, 0))
-breaks_y <- c(0, 10^c(-7, -6, -5, -4, 0))
-t_breaks_y <- my_ecdf(breaks_y)
-labels_y <- my_labeller(breaks_y)
-t_breaks_x <- my_ecdf(breaks_x)
-labels_x <- my_labeller(breaks_x)
-
 # specify rows separately to center align bottom row
 rows <- list(c("FMC", "LG", "LM"), c("SMA", "LRWA"))
 
@@ -916,28 +991,27 @@ create_row <- function(row) {
   dt_stats <- filter(collect_stats, Model %in% row)
 
   return(
-    ggplot(dt_recal, aes(x = my_ecdf(x))) +
+    ggplot(dt_recal, aes(x = my_trans(x))) +
       facet_wrap(~factor(Model, ordered = T, levels = row), nrow = 1) +
-      geom_ribbon(aes(ymin = my_ecdf(lower), ymax = my_ecdf(upper), fill = Model),
+      geom_ribbon(aes(ymin = my_trans(lower), ymax = my_trans(upper), fill = Model),
                   alpha = 0.33, show.legend = FALSE) +
       geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
                   linetype = "dashed") +
-      geom_step(aes(y = my_ecdf(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
+      geom_step(aes(y = my_trans(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
       scale_color_manual(values = model_colors) +
       scale_fill_manual(values = model_colors) +
-      scale_x_continuous(breaks = t_breaks_x, labels = labels_x) +
-      scale_y_continuous(breaks = t_breaks_y, labels = labels_y) +
+      scale_x_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
+      scale_y_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
       xlab(NULL) +
       ylab(NULL) +
       ggtitle(NULL) +
-      geom_text(data = dt_stats, mapping = aes(x = 0.02, y = 0.64, label = label),
+      geom_text(data = dt_stats, mapping = aes(x = text_x, y = text_y, label = label),
                 size = 7 * 0.36, hjust = 0, vjust = 0) +
       my_theme +
       theme(aspect.ratio = 1, panel.grid.major = element_blank(),
             panel.grid.minor = element_blank(), plot.margin = margin(5.5, 3.5, 5.5, 3.5))
   )
 }
-
 
 combine <- grid.arrange(create_row(rows[[1]]) + inset_histograms[which(model_names %in% rows[[1]])],
                         create_row(rows[[2]]) + inset_histograms[which(model_names %in% rows[[2]])],
@@ -949,9 +1023,9 @@ combine <- grid.arrange(create_row(rows[[1]]) + inset_histograms[which(model_nam
                                        gp = gpar(fontsize = 11)))
 
 # create small hist to describe functionality of inset histogram pictogram like
-small_hist <- ggplot(data.table(x = rep(my_breaks[-1], 1:(length(my_breaks) - 1)))) +
+small_hist <- ggplot(data.table(x = rep(hist_breaks[-1], 1:(length(hist_breaks) - 1)))) +
     geom_histogram(aes(x = x), fill = "gray", col = "black", size = 0.2,
-                   breaks = my_breaks, alpha = 0.5) +
+                   breaks = hist_breaks, alpha = 0.5) +
     theme_classic(base_size = 5.5) +
     theme(axis.line.y = element_blank(),
           axis.text = element_blank(), axis.ticks = element_blank(),
@@ -962,7 +1036,9 @@ small_hist <- ggplot(data.table(x = rep(my_breaks[-1], 1:(length(my_breaks) - 1)
 finish <- ggplot() +
   # set axis limits
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = F) +
+  # add reliability diagram
   annotation_custom(combine, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+  # add small histogram on the side with describing text
   annotation_custom(ggplotGrob(small_hist), xmin = 0.88, xmax = 0.96, ymin = 0.07, ymax = 0.15) +
   annotate("text", x = 0.92, y = 0.16, label = "Histogram",
            size = 7 * 0.36, lineheight = 0.7, color = "darkgray") +
@@ -973,8 +1049,8 @@ finish <- ggplot() +
         panel.background = element_rect("white"),
         plot.margin = margin(0, 0, 0, 0))
 
-file_path <- file.path(fpath, "Fig8_ReliabilityDiagram.pdf")
+file_path <- file.path(fpath, paste0("Fig8_ReliabilityDiagram", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 125, unit = "mm", plot = finish)
 
 rm(combine, col_ecdfs, collect_stats, recal_models, inset_histograms, mean_ecdf,
-   create_row, finish, small_hist)
+   create_row, finish, small_hist, my_hist)
