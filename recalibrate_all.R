@@ -556,32 +556,6 @@ get_local_fits <- function(model, l_subsets) {
   return(do.call(rbind, iso_fits))
 }
 
-# average fits to get one average fit - use PAV algoorithm to get an increasing
-# average fit. First make sure that functions are defined on a joint grid, so
-# that averaging works fine
-average_fits2 <- function(collect_fits) {
-  average_iso <- function(dt) {
-    if (n_distinct(dt$G) == 1) {
-      return(dt)
-    }
-    # we need to define estimates on a joint grid, so that averaging works
-    wide <- dcast(dt, x ~ G, value.var = "x_rc", fill = NA)[order(x)]
-    # use last available observation to fill NA (step fcn!)
-    fill_first_row <- which(is.na(wide[1, ]))
-    if (length(fill_first_row > 0)) {
-      wide[1, fill_first_row] <- 0.0   # at the start step fcn.s are 0
-    }
-    fill_na <- setnafill(wide, type = "locf")
-    # pivot longer, and apply isotonic regression
-    average <- melt(fill_na, id.vars = "x", variable.name = "G_str", value.name = "x_rc")[order(x, -x_rc)][
-      , .(x = x, x_rc = monotone(x_rc), G = 0L)][filter_jumps(x_rc)]
-    return(average)
-  }
-  collect_fits$Radius <- factor(collect_fits$Radius)
-  # isotonic fit on previous conditional estimates, and set Group tp 0
-  return(collect_fits[, average_iso(.SD), keyby = c("Model", "Radius")])
-}
-
 average_fits <- function(collect_fits) {
   average_iso <- function(dt) {
     if (n_distinct(dt$G) == 1) {
@@ -600,7 +574,7 @@ average_fits <- function(collect_fits) {
     return(average)
   }
   collect_fits$Radius <- factor(collect_fits$Radius)
-  # isotonic fit on previous conditional estimates, and set Group tp 0
+  # isotonic fit on previous conditional estimates, and set Group to 0
   return(collect_fits[, average_iso(data.table(x = x, G = G, x_rc = x_rc)),
                         keyby = c("Model", "Radius")])
 }
@@ -694,7 +668,9 @@ plot_averages <- function(collect_fits) {
   return(
     ggplot(plot_data) +
       facet_wrap(~Model, nrow = 2) +
-      geom_step(aes(x = my_ecdf(x), y = my_ecdf(x_rc), color = factor(Radius)), size = 0.4) +
+      geom_step(aes(x = my_ecdf(x), y = my_ecdf(x_rc), color = factor(Radius, ordered = T)),
+                size = 0.4) +
+      scale_color_brewer(name = "Radius", palette = "Paired") +
       theme_bw() +
       xlab("x") +
       ylab("x_rc") +
@@ -726,6 +702,7 @@ result <- get_fits(radii, get_balls)
 collect_fits <- result$fits
 collect_coverings <- result$coverings
 #collect_fits <- data.table(read.csv("./../tmp_results/local_isotonic_fits.csv", row.names = 1))
+#collect_coverings <- lapply(radii, get_balls)
 all_rows <- lapply(1:length(radii), function(r) create_row(filter(collect_fits, Radius == radii[r]),
                                                            collect_coverings[[r]]))
 
@@ -733,19 +710,22 @@ combine <- grid.arrange(all_rows[[1]], all_rows[[2]], all_rows[[3]], all_rows[[4
                         all_rows[[5]], all_rows[[6]], all_rows[[7]], ncol = 1,
                         top = "Local Recalibration Curves on Balls of Different Radii Covering the Whole Testing Region")
 
-ggsave("./../test/iso_fits-local.pdf", width = 400, height = 550,
+ggsave("./../test/iso_fits-local-n.pdf", width = 400, height = 550,
        unit = "mm", plot = combine)
 
-plot_averages(collect_fits)
+avg_fits <- plot_averages(collect_fits)
+avg_fits +
+  ggtitle("Averaged Local Recalibration Curves")
 ggsave("./../test/iso_fits-local-avg.pdf", width = 300, height = 200,
        unit = "mm")
 
 # look at fits of r "dispersed" data, i.e., data points with r distance --------
-radii <- c(1, 3, 6, 10, 15, 20)
+radii <- factor(c(1, 3, 6, 10, 15, 20), ordered = T)
 result <- get_fits(radii, get_r_distant_points)
 collect_fits <- result$fits
 collect_coverings <- result$coverings
 #collect_fits <- data.table(read.csv("./../tmp_results/distant_isotonic_fits.csv", row.names = 1))
+#collect_coverings <- lapply(radii, get_r_distant_points)
 all_rows <- lapply(1:length(radii), function(r) create_row(filter(collect_fits, Radius == radii[r]),
                                                            collect_coverings[[r]]))
 
