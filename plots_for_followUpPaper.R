@@ -56,11 +56,15 @@ s_pois_da <- function(X, Y) {
   score <- -Y * log(X) + X
   score[zero_fcst] <- 0
   score[impossible_fcst] <- Inf
-  return(sum(score) / n_days)
+  return(sum(score) / n_days)       # daily averages
+}
+
+s_quad <- function(X, Y) {
+  return((X - Y)^2)
 }
 
 s_quad_da <- function(X, Y) {
-  return(sum((X - Y)^2) / n_days)
+  return(sum((X - Y)^2) / n_days)   # daily averages
 }
 
 ################################################################################
@@ -352,7 +356,10 @@ rm(t1, t2, c_names, make_bold, x, y, ord, x_rc, s, s_rc, s_mg, j)
 # Visualize Poisson score (differences) temporally
 ################################################################################
 
-scores <- do.call(cbind, lapply(models, function(X) rowSums(s_pois(X, obs))))
+scf <- s_pois
+# scf <- s_quad
+
+scores <- do.call(cbind, lapply(models, function(X) rowSums(scf(X, obs))))
 scores <- data.frame(scores) %>%
   mutate(X = 1:nrow(.), earthquake = rowSums(obs) != 0)
 colnames(scores) <- c(model_names, "X", "earthquake")
