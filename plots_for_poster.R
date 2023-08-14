@@ -15,12 +15,16 @@ source("functions_eval.R")
 model_colors <- c("FMC" = "#F8766D", "LG" = "#00BA38", "SMA" = "#619CFF",
                   "LM" = "#DB72FB")
 
-fpath <- "./figures"
+fpath <- "./figures_pos"
+
+base_size <- 20 / 1.2
+label_size <- base_size * 0.8
 
 my_theme <- list(
-  theme_bw() +
+  theme_bw(base_size = base_size) +
   theme(panel.grid.major = element_line(size = 0.05),
-        panel.grid.minor = element_line(size = 0.05))
+        panel.grid.minor = element_line(size = 0.05),
+        plot.title = element_text(size = 20))
 )
 
 ################################################################################
@@ -94,9 +98,9 @@ one_pred <- ggplot() +
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"))) +
-  ggtitle("One Prediction of the LM Model") +
+  ggtitle(paste0("LM Model (",  ymd(times[i_time]), ")")) +
   my_theme +
-  theme(legend.position = "right", legend.title = element_text(size = 8))
+  theme(legend.position = "right", legend.title = element_text(size = label_size))
 
 file_path <- file.path(fpath, "Poster_Fig1.pdf")
 ggsave(file_path, width = 110, height = 110, unit = "mm", plot = one_pred)
@@ -156,20 +160,22 @@ spat_plot <- ggplot() +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_gradientn(name = "Score\ndifference",
                        trans = my_trans, colors = my_colors, values = rescale(col_breaks),
-                       breaks = my_breaks, labels = my_labels) +
+                       breaks = my_breaks, labels = my_labels,
+                       guide = guide_colorbar(barheight = unit(35, "mm"))) +
   ggtitle("Average Poisson Score Differences") +
   scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"))) +
-  annotate(geom = "text", label = "FMC/LG/SMA\ndominates", x = 27, y = 44, size = 3,
-           color = "#057ffa") +
-  annotate(geom = "text", label = "LM\ndominates", x = 27, y = 41.5, size = 3,
-           color = "#f51818") +
+  annotate(geom = "text", label = "FMC/LG/SMA\ndominates", x = 30, y = 44.5,
+           size = label_size / .pt * 0.8, color = "#057ffa") +
+  annotate(geom = "text", label = "LM\ndominates", x = 30, y = 42,
+           size = label_size / .pt * 0.8, color = "#f51818") +
   theme_bw() +
   my_theme +
   theme(legend.position = "right", strip.background = element_blank(),
-        legend.title = element_text(size = 8))
+        legend.title = element_text(size = label_size),
+        plot.margin = margin(5.5, 25.5, 0, 5.5))
 
 # and now temporally
 
@@ -198,30 +204,30 @@ temp_plot <- ggplot(diff_scores) +
   geom_vline(data = filter(diff_scores, earthquake > 0),
              aes(xintercept = X, linetype = "Obs. earthquakes"),
              alpha = 0.2, color = "gray", size = 0.3) +
-  geom_line(aes(x = X, y = value, color = Model), size = 0.4) +
+  geom_point(aes(x = X, y = value, color = Model), size = 0.75, alpha = 0.4) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
   scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
                      labels = paste(cmp_model, "vs.", ana_models),
-                     guide = guide_legend(order = 1)) +
+                     guide = guide_legend(order = 1, override.aes = list(alpha = 1))) +
   scale_linetype_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = 1),
                         labels = "",
-                        guide = guide_legend(override.aes = list(alpha = 1, size = 0.4),
+                        guide = guide_legend(override.aes = list(alpha = 1, size = 0.5),
                                              order = 2)) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
-  annotate(geom = "text", label = "FMC/LG/SMA dominates", x = 50, y = 0.001, size = 3,
-           hjust = 0) +
-  annotate(geom = "text", label = "LM dominates", x = 50, y = -0.005, size = 3,
-           hjust = 0) +
+  annotate(geom = "text", label = "FMC/LG/SMA dominates", x = 50, y = 0.001,
+           size = label_size / .pt * 0.8, hjust = 0) +
+  annotate(geom = "text", label = "LM dominates", x = 50, y = -0.005,
+           size = label_size / .pt * 0.8, hjust = 0) +
   xlab(NULL) +
   ylab("log-transformed score") +
   ggtitle(NULL) +
   my_theme +
-  theme(legend.position = "right", legend.title = element_text(size = 8),
-        legend.text = element_text(size = 8),
-        plot.margin = margin(5.5, 42.7, 5.5, 40.7))
+  theme(legend.position = "right", legend.title = element_text(size = label_size),
+        legend.text = element_text(size = label_size),
+        plot.margin = margin(5.5, 42.7, 5.5, 16.5))
 
 combine_plots <- grid.arrange(spat_plot, temp_plot, nrow = 2, heights = c(11, 6) / 17)
 
@@ -319,6 +325,13 @@ for (i in 1:length(models)) {
   )
 }
 
+recal_models <- read.csv("./../tmp_results/recal_models_all-Til-100-5.csv",
+                         row.names = 1) %>%
+  filter(Model %in% model_names)
+collect_stats <- read.csv("./../tmp_results/collect_stats_5.csv",
+                          row.names = 1) %>%
+  filter(Model %in% model_names)
+
 # now plot
 
 d <- 10^9
@@ -326,6 +339,10 @@ my_trans <- trans_new(
   "log", function(x) sign(x) * log(abs(x) * d  + 1),
   function(y) sign(y) / d * (exp(abs(y)) - 1)
 )
+
+plot_min <- my_trans$transform(min(c(recal_models$x, recal_models$lower)))
+plot_max <- my_trans$transform(max(c(recal_models$x, recal_models$upper)))
+hist_breaks <- seq(plot_min, plot_max, length.out = 9)
 
 # create inset-histograms
 inset_histograms <- list()
@@ -335,14 +352,10 @@ for (i in 1:length(models)) {
   ymin <- my_trans$transform(10^-9)
   ymax <- my_trans$transform(10^-6)
 
-  my_breaks <- my_trans$inverse(seq(0, my_trans$transform(max(models[[1]])),
-                                    length.out = 9))
-
-  my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
+  my_hist <- ggplot(data.table(x = my_trans$transform(as.vector(models[[i]])))) +
     geom_histogram(aes(x = x), fill = "gray", col = "black", size = 0.2,
-                   breaks = my_breaks) +
+                   breaks = hist_breaks) +
     theme_classic(base_size = 5.5) +
-    scale_x_continuous(trans = my_trans, breaks = c(0, 1)) +
     theme(axis.line.y = element_blank(),
           axis.text = element_blank(), axis.ticks = element_blank(),
           axis.title = element_blank(), plot.background = element_blank(),
@@ -375,15 +388,15 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram") +
-  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.005, label = label),
-            size = 8 * 0.36, hjust = 0, vjust = 0) +
+  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.002, label = label),
+            size = label_size / .pt * 0.8, hjust = 0, vjust = 0) +
   my_theme +
   theme(strip.background = element_blank(), aspect.ratio = 1)
 
 combine_plots <- main_plot + inset_histograms
 
 file_path <- file.path(fpath, "Poster_Fig6.pdf")
-ggsave(file_path, width = 310, height = 90, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 310, height = 100, unit = "mm", plot = combine_plots)
 
 # for daily forecasts comparison with result from Jonas, use quadratic scoring fcn!
 
@@ -491,6 +504,9 @@ colnames(murphy_df) <- model_names
 # S_theta sums, but we want averages
 murphy_df <- murphy_df / prod(dim(obs))
 
+murphy_df <- read.csv("./../tmp_results/murphy_df.csv", row.names = 1) %>%
+  select(all_of(model_names))
+
 data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
@@ -502,11 +518,10 @@ data.frame(murphy_df) %>%
   ggtitle("Murphy Diagram") +
   my_theme +
   theme(legend.position = c(0.01, 1.03), legend.justification = c(0, 1),
-        legend.text = element_text(size = 8),
         legend.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig7.pdf")
-ggsave(file_path, width = 110, height = 75, unit = "mm")
+ggsave(file_path, width = 130, height = 80, unit = "mm")
 
 data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
