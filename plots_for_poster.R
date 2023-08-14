@@ -103,7 +103,7 @@ one_pred <- ggplot() +
   theme(legend.position = "right", legend.title = element_text(size = label_size))
 
 file_path <- file.path(fpath, "Poster_Fig1.pdf")
-ggsave(file_path, width = 110, height = 110, unit = "mm", plot = one_pred)
+ggsave(file_path, width = 150, height = 110, unit = "mm", plot = one_pred)
 
 rm(cells_and_events, events_by_cell, pred_one_day, spat_distr, mag_distr,
    one_pred)
@@ -125,7 +125,6 @@ diff_scores <- scores %>%
   mutate(LON = cells$LON, LAT = cells$LAT) %>%
   select(LON, LAT, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores$Model <- paste(cmp_model, "vs.", diff_scores$Model)
 
 my_colors <- c("#800303", "#f51818", "#ffffff", "#057ffa")
 limits <- range(diff_scores$value)
@@ -167,9 +166,9 @@ spat_plot <- ggplot() +
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
                                           keyheight = unit(5, "points"))) +
-  annotate(geom = "text", label = "FMC/LG/SMA\ndominates", x = 30, y = 44.5,
+  annotate(geom = "text", label = "FMC/LG/SMA\npreferred", x = 30, y = 44.5,
            size = label_size / .pt * 0.8, color = "#057ffa") +
-  annotate(geom = "text", label = "LM\ndominates", x = 30, y = 42,
+  annotate(geom = "text", label = "LM\npreferred", x = 30, y = 42,
            size = label_size / .pt * 0.8, color = "#f51818") +
   theme_bw() +
   my_theme +
@@ -208,8 +207,7 @@ temp_plot <- ggplot(diff_scores) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
-  scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
-                     labels = paste(cmp_model, "vs.", ana_models),
+  scale_color_manual(name = "LM vs.", values = model_colors, breaks = ana_models,
                      guide = guide_legend(order = 1, override.aes = list(alpha = 1))) +
   scale_linetype_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = 1),
                         labels = "",
@@ -217,9 +215,9 @@ temp_plot <- ggplot(diff_scores) +
                                              order = 2)) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
-  annotate(geom = "text", label = "FMC/LG/SMA dominates", x = 50, y = 0.001,
+  annotate(geom = "text", label = "FMC/LG/SMA preferred", x = 50, y = 0.001,
            size = label_size / .pt * 0.8, hjust = 0) +
-  annotate(geom = "text", label = "LM dominates", x = 50, y = -0.005,
+  annotate(geom = "text", label = "LM preferred", x = 50, y = -0.005,
            size = label_size / .pt * 0.8, hjust = 0) +
   xlab(NULL) +
   ylab("log-transformed score") +
@@ -227,7 +225,7 @@ temp_plot <- ggplot(diff_scores) +
   my_theme +
   theme(legend.position = "right", legend.title = element_text(size = label_size),
         legend.text = element_text(size = label_size),
-        plot.margin = margin(5.5, 42.7, 5.5, 16.5))
+        plot.margin = margin(5.5, 65, 5.5, 16.5))
 
 combine_plots <- grid.arrange(spat_plot, temp_plot, nrow = 2, heights = c(11, 6) / 17)
 
@@ -396,7 +394,7 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
 combine_plots <- main_plot + inset_histograms
 
 file_path <- file.path(fpath, "Poster_Fig6.pdf")
-ggsave(file_path, width = 310, height = 100, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 310, height = 110, unit = "mm", plot = combine_plots)
 
 # for daily forecasts comparison with result from Jonas, use quadratic scoring fcn!
 
