@@ -128,8 +128,8 @@ eq_hist <- events %>%
 
 x_start <- 0.7
 x_end <- 1
-y_start <- 0.26
-y_end <- 0.76
+y_start <- 0.3
+y_end <- 0.72
 annotate_symbols <- data.frame(x = seq(x_start + 0.038, x_end - 0.001,
                                        length.out = n_breaks + 2)[c(-1, -n_breaks - 2)],
                                y = y_start - 0.02, g = factor(1:n_breaks),
@@ -151,6 +151,8 @@ combine <- ggplot() +
         axis.text = element_blank(), axis.ticks = element_blank(),
         axis.title = element_blank())
 
+# Warning: Removed 30 rows containing missing values is due to histogram log10
+# transformation, as we also fill each bin with a unique color
 finish <- grid.arrange(combine,
                        top = textGrob("Earthquakes in Italy",
                                       gp = gpar(fontsize = title_size)))
@@ -946,18 +948,20 @@ add_name <- "_log"
 # 3 - use no / standard transform ----------------------------------------------
 my_trans <- function(x) x
 # position of inset histograms
-xmin <- 3.5
-xmax <- 5.0
+xmin <- 1.6
+xmax <- 2.2
 ymin <- 0.05
-ymax <- 1.5
+ymax <- 0.6
 # axis breaks and labels
-t_breaks <- seq(0, 5, length.out = 6)
-labels <- c("0", rep("", length(breaks) - 2), "5")
+t_breaks <- seq(0, 2, length.out = 6)
+labels <- c("0", rep("", length(breaks) - 2), 2)
 # position of score components
-text_x <- 0.1
-text_y <- 3.3
+text_x <- 0.03
+text_y <- 1.45
 # add to name
 add_name <- "_std"
+# cut confidence band at plot max
+recal_models$upper <- pmin(recal_models$upper, 2.2)
 
 # ------------------------------------------------------------------------------
 
@@ -1051,122 +1055,3 @@ finish <- ggplot() +
 
 file_path <- file.path(fpath, paste0("Fig8_ReliabilityDiagram", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 125, unit = "mm", plot = finish)
-
-# Local reliability diagrams ---------------------------------------------------
-# for appendix look at local reliability curves to investigate influence of the
-# spatial character
-
-radii <- c(0, 5, 10, 25, 50, 100, 1000)
-collect_fits <- data.table(read.csv("./../tmp_results/local_isotonic_fits.csv",
-                                    row.names = 1))
-
-average_fits <- function(collect_fits) {
-  average_iso <- function(dt) {
-    if (n_distinct(dt$G) == 1) {
-      return(dt)
-    }
-    # we need to define estimates on a joint grid, so that averaging works
-    wide <- dcast(dt, x ~ G, value.var = "x_rc", fill = NA)[order(x)]
-    # use last available observation to fill NA (step fcn!)
-    fill_first_row <- which(is.na(wide[1, ]))
-    if (length(fill_first_row > 0)) {
-      wide[1, fill_first_row] <- 0.0   # at the start step fcn.s are 0
-    }
-    fill_na <- setnafill(wide, type = "locf")
-    # pivot longer, and apply isotonic regression
-    average <- data.table(x = fill_na$x, G = 0L, x_rc = rowMeans(fill_na[, -c("x")]))
-    return(average)
-  }
-  collect_fits$Radius <- factor(collect_fits$Radius)
-  # isotonic fit on previous conditional estimates, and set Group to 0
-  return(collect_fits[, average_iso(data.table(x = x, G = G, x_rc = x_rc)),
-                        keyby = c("Model", "Radius")])
-}
-
-averaged_fits <- average_fits(collect_fits)
-plot_min <- my_trans(min(c(averaged_fits$x, averaged_fits$x_rc)))
-plot_max <- my_trans(max(c(averaged_fits$x, averaged_fits$x_rc)))
-
-create_row <- function(row, show_legend = F) {
-  dt <- filter(averaged_fits, Model %in% row)
-
-  return(
-    ggplot(dt, aes(x = my_trans(x))) +
-      facet_wrap(~factor(Model, ordered = T, levels = row), nrow = 1) +
-      geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
-                  linetype = "dashed") +
-      geom_step(aes(y = my_trans(x_rc), color = factor(Radius, ordered = T)), size = 0.4,
-                show.legend = show_legend) +
-      scale_color_brewer(name = "Radius", palette = "Paired") +
-      scale_x_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
-      scale_y_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
-      xlab(NULL) +
-      ylab(NULL) +
-      ggtitle(NULL) +
-      my_theme +
-      theme(aspect.ratio = 1, panel.grid.major = element_blank(), legend.position = "bottom",
-            panel.grid.minor = element_blank(), plot.margin = margin(5.5, 3.5, 5.5, 3.5))
-  )
-}
-
-combine <- grid.arrange(create_row(rows[[1]]), create_row(rows[[2]]),
-                        get_legend(create_row(rows[[2]], show_legend = T)),
-                        nrow = 3, heights = c(0.45, 0.45, 0.1),
-                        top = textGrob("Averaged Local Reliability Curves",
-                                       gp = gpar(fontsize = title_size)),
-                        bottom = textGrob("Forecasted mean",
-                                       gp = gpar(fontsize = 11)),
-                        left = textGrob("Conditional mean", rot = 90,
-                                       gp = gpar(fontsize = 11)))
-
-file_path <- file.path(fpath, paste0("Appendix_LocalReliabilityDiagram", add_name, ".pdf"))
-ggsave(file_path, width = 145, height = 140, unit = "mm", plot = combine)
-
-construct_circles <- function(radius) {
-  x_midpoints <- seq(min(cells$X), max(cells$X), radius)
-  y_midpoints <- seq(min(cells$Y), max(cells$Y), radius)
-
-  collect_circles <- list()
-  i <- 1
-  for (x_index in x_midpoints) {    # we iterate over cell indices not coordinates
-    for (y_index in y_midpoints) {
-      x_mid <- 5.45 + 0.1 * x_index   # transform index to position (longitude)
-      y_mid <- 35.75 + 0.1 * y_index  # (latitude)
-      r <- radius * 0.1
-      # if circle doesn't hit testing region, skip it
-      if (all((x_mid - cells$LON)^2 + (y_mid - cells$LAT)^2 > r^2)) {
-        next
-      }
-      x <- seq(x_mid - r, x_mid + r, 0.1)
-
-      df <- data.frame(x = c(x, rev(x)), sign = rep(c(1, -1), each = length(x))) %>%
-        # if difference is small negative set it to zero
-        mutate(d = r^2 - (x - x_mid)^2, d = ifelse(d >= 0 | d < -10^-9, d, 0)) %>%
-        transmute(x = x, y = y_mid + sign * sqrt(d), G = i)
-
-      collect_circles[[i]] <- df
-      i <- i + 1
-    }
-  }
-  return(do.call(rbind, collect_circles))
-}
-
-radius <- radii[4]
-circles <- construct_circles(radius)
-
-# visualize covering with balls
-covering_plot <- ggplot() +
-  geom_sf(data = filter(europe, name == "Italy"), color = "gray", fill = "gray",
-          size = 0.2) +
-  geom_path(data = circles, aes(x = x, y = y, group = G), color = "black") +
-  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
-  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
-  scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-  ggtitle("Cover Testing Region with Balls") +
-  my_theme
-
-file_path <- file.path(fpath, "Appendix_LocalNeighborhoods2.pdf")
-ggsave(file_path, width = 80, height = 100, unit = "mm")
-
-rm(combine, col_ecdfs, collect_stats, recal_models, inset_histograms, mean_ecdf,
-   create_row, finish, small_hist, my_hist)

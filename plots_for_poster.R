@@ -247,13 +247,13 @@ murphy_df <- murphy_df / prod(dim(obs))
 murphy_df <- read.csv("./../tmp_results/murphy_df.csv", row.names = 1) %>%
   select(all_of(model_names))
 
-data.frame(murphy_df) %>%
+murphy_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
   ggplot() +
   geom_line(aes(x = theta, y = value, color = Model), size = 0.3) +
   scale_color_manual(name = NULL, values = model_colors) +
-  xlab(expression(paste("Threshold log", theta))) +
+  xlab(expression(paste("log", theta))) +
   ylab("Elementary score") +
   ggtitle("Murphy Diagram") +
   my_theme +
@@ -261,9 +261,13 @@ data.frame(murphy_df) %>%
         legend.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig4.pdf")
-ggsave(file_path, width = 150, height = 130, unit = "mm")
+ggsave(file_path, width = 150, height = 135, unit = "mm", plot = murphy_diag)
 
-data.frame(murphy_df) %>%
+cmp_model <- "LM"
+cmp_m <- sym(cmp_model)
+ana_models <- model_names[model_names != cmp_model]
+
+murphy_diff_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
   mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
   select(theta, all_of(ana_models)) %>%
@@ -273,19 +277,17 @@ data.frame(murphy_df) %>%
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_color_manual(name = NULL, values = model_colors, breaks = ana_models,
                      labels = paste(cmp_model, "vs.", ana_models)) +
-  xlab(expression(paste("Threshold log", theta))) +
+  xlab(expression(paste("log", theta))) +
   ylab("Elementary score") +
   ggtitle("Murphy Difference Diagram") +
   my_theme +
   theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0),
-        legend.text = element_text(size = 8),
         legend.background = element_blank())
 
 file_path <- file.path(fpath, "Poster_Fig4_Diff.pdf")
-ggsave(file_path, width = 150, height = 110, unit = "mm")
+ggsave(file_path, width = 150, height = 140, unit = "mm", plot = murphy_diff_diag)
 
-rm(murphy_df)
-
+rm(murphy_df, murphy_diag, murphy_diff_diag)
 
 ################################################################################
 # Visualize reliability diagram
@@ -445,7 +447,7 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram") +
-  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.003, label = label),
+  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.002, label = label),
             size = label_size / .pt * 0.9, hjust = 0, vjust = 0, family = "MiriamLibre") +
   my_theme +
   theme(strip.background = element_blank(), aspect.ratio = 1,
@@ -454,7 +456,7 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
 combine_plots <- main_plot + inset_histograms
 
 file_path <- file.path(fpath, "Poster_Fig5.pdf")
-ggsave(file_path, width = 270, height = 270, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 270, height = 260, unit = "mm", plot = combine_plots)
 
 # for daily forecasts comparison with result from Jonas, use quadratic scoring fcn!
 
