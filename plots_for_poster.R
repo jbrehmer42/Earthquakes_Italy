@@ -23,7 +23,7 @@ showtext_auto()
 
 fpath <- "./figures_pos"
 
-base_size <- 32 / 1.2
+base_size <- 28 / 1.2
 label_size <- base_size * 0.8
 
 my_theme <- list(
@@ -126,8 +126,8 @@ eq_loc <- events %>%
   left_join(cells, by = "N") %>%
   select(LON, LAT, Count)
 
-anno1_text <- data.frame(text = "FMC/\nLG/SMA\npreferred", x = 29.3, y = 45, Model = "SMA")
-anno2_text <- data.frame(text = "LM\npreferred", x = 29.3, y = 41.5, Model = "SMA")
+anno1_text <- data.frame(text = "FMC/\nLG/SMA\npreferred", x = 28.3, y = 45, Model = "SMA")
+anno2_text <- data.frame(text = "LM\npreferred", x = 28.3, y = 41.5, Model = "SMA")
 
 spat_plot <- ggplot() +
   facet_grid(~Model) +
@@ -144,7 +144,7 @@ spat_plot <- ggplot() +
                        trans = my_trans, colors = my_colors, values = rescale(col_breaks),
                        breaks = my_breaks, labels = my_labels,
                        guide = guide_colorbar(barheight = unit(50, "mm"))) +
-  ggtitle("Average Poisson Score Differences") +
+  ggtitle("Mean Poisson Score Difference") +
   scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
                      labels = "",
                      guide = guide_legend(keywidth = unit(5, "points"),
@@ -158,7 +158,8 @@ spat_plot <- ggplot() +
   theme(legend.position = "right", strip.background = element_blank(),
         legend.background = element_blank(),
         legend.margin = margin(5.5, 5.5, 3, 3),
-        plot.margin = margin(5.5, 40, 0, 5.5))
+        plot.margin = margin(5.5, 50, 0, 5.5),
+        plot.title = element_text(family = "roboto", margin = margin(0, 0, 2, 0)))
 
 file_path <- file.path(fpath, "Poster_Fig2.pdf")
 ggsave(file_path, width = 370, height = 145, unit = "mm", plot = spat_plot)
@@ -208,11 +209,11 @@ temp_plot <- ggplot(diff_scores_t) +
   annotate(geom = "text", label = "LM preferred", x = 50, y = -0.005,
            size = label_size / .pt * 0.8, hjust = 0) +
   xlab(NULL) +
-  ylab("log-transformed score") +
+  ylab("Score difference") +
   ggtitle(NULL) +
   my_theme +
   theme(legend.position = "right", legend.text = element_text(size = label_size),
-        plot.margin = margin(5.5, 35, 5.5, 16.5))
+        plot.margin = margin(5.5, 35, 5.5, 5.5))
 
 file_path <- file.path(fpath, "Poster_Fig3.pdf")
 ggsave(file_path, width = 370, height = 105, unit = "mm", plot = temp_plot)
@@ -422,6 +423,12 @@ my_breaks <- c(0, 10^c(-8, -6, -4, -2, 0))
 my_labels <- c("0", paste0("1e", c(-8, -6, -4, -2)), "1")
 minor_breaks <- c(0, 10^(-10:0))
 
+collect_stats <- mutate(collect_stats,
+                         label = paste0("Score ", sprintf("%0.3f", Score),
+                                        "\nMCB ", sprintf("%0.3f", MCB),
+                                        "\nDSC ", sprintf("%0.3f", DSC),
+                                        "\nUNC ", sprintf("%0.3f", UNC)))
+
 main_plot <- ggplot(recal_models, aes(x = x)) +
   facet_wrap(~Model, nrow = 2) +
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = Model), alpha = 0.33,
@@ -438,10 +445,11 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram") +
-  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.002, label = label),
-            size = label_size / .pt * 0.8, hjust = 0, vjust = 0) +
+  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.003, label = label),
+            size = label_size / .pt * 0.9, hjust = 0, vjust = 0, family = "MiriamLibre") +
   my_theme +
-  theme(strip.background = element_blank(), aspect.ratio = 1)
+  theme(strip.background = element_blank(), aspect.ratio = 1,
+        panel.spacing.x = unit(10, "mm"), plot.background = element_blank())
 
 combine_plots <- main_plot + inset_histograms
 
@@ -487,3 +495,5 @@ ggplot(recal_models, aes(x = x)) +
 
 ggsave("./../test/send2/reliability_daily.pdf", width = 150, height = 180,
        unit = "mm")
+
+rm(recal_models, collect_stats, main_plot, inset_histograms)
