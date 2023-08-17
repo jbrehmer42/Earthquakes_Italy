@@ -490,30 +490,35 @@ fit_isotonic_all <- function(x, y) {
   return(dt)
 }
 
+euclidian_dist <- function(x1, y1, x2, y2) sqrt((x1 - x2)^2 + (y1 - y2)^2)
+max_dist <- function(x1, y1, x2, y2) pmax(abs(x1 - x2), abs(y1 - y2))
+
 # calculate balls of radius r that intersect testing region with an intersection
-# of at least roughly 1/4 of their cells
+# of at least roughly 1/4 of their cells (for euclidian balls)
 # return list of balls stored as vector of covered cells
-get_balls <- function(r) {
+get_balls <- function(r, dist = euclidian_dist, disjoint = F) {
   # each cell separate
   if (r == 0) return(as.list(cells$N))
   # all cells together (if radius is very large there is only on ball
   if (r >= 120) return(list(cells$N))
 
+  if (disjoint) {
+    step <- 2 * r + 1
+    thresh <- 1
+    x_midpoints <- seq(min(cells$X) - r, max(cells$X) + r, step)
+    y_midpoints <- seq(min(cells$Y) - r, max(cells$Y) + r, step)
+  } else {
+    step <- r
+    thresh <- 1 + r * (r + 3) / 2   # use lower corner of the euclidian r-ball as thresh
+    x_midpoints <- seq(min(cells$X), max(cells$X), step)
+    y_midpoints <- seq(min(cells$Y), max(cells$Y), step)
+  }
   out_list <- list()
-  x_midpoints <- seq(min(cells$X), max(cells$X), r)
-  y_midpoints <- seq(min(cells$Y), max(cells$Y), r)
 
-  r_squre <- r^2
-  # euclidian ball on discrete 2-dim grid covers so many grid points
-  # OOXOO
-  # OXXXO   e.g. if r = 1 (X: cell belongs to ball, O: cell is outside of ball)
-  # OOXOO
-  # num_of_cells <- 1 + 2 * r * (r + 1)   # number of cells of the ball
-  thresh <- 1 + r * (r + 3) / 2           # use lower corner as thresh
   i <- 1
   for (x in x_midpoints) {
     for (y in y_midpoints) {
-      matches <- filter(cells, (X - x)^2 + (Y - y)^2 <= r_squre) %>% pull(N)
+      matches <- filter(cells, dist(X, Y, x, y) <= r) %>% pull(N)
 
       if (length(matches) >= thresh) {
         out_list[[i]] <- matches
@@ -556,22 +561,45 @@ get_local_fits <- function(model, l_subsets) {
   return(do.call(rbind, iso_fits))
 }
 
-average_fits <- function(collect_fits) {
+# average local fits: problem average is not any more increasing although it should!
+# from the local fits we can retrieve the values inside the support AND outside
+# the support we know the the values have to be smaller before and larger afterwards
+# The latter is not respected by simple averaging, this speaks for applying isotonic
+# regression a second time
+average_fits <- function(collect_fits, iso = FALSE) {
   average_iso <- function(dt) {
     if (n_distinct(dt$G) == 1) {
       return(dt)
     }
+    groups <- paste(unique(dt$G))
     # we need to define estimates on a joint grid, so that averaging works
     wide <- dcast(dt, x ~ G, value.var = "x_rc", fill = NA)[order(x)]
+    # we have to remember last valid value, as filling will fill to the end
+    # but we cannot use the curves to extrapolate
+    last_indices <- wide[, lapply(.SD, function(col) max(which(!is.na(col)))), .SDcols = groups]
     # use last available observation to fill NA (step fcn!)
-    fill_first_row <- which(is.na(wide[1, ]))
-    if (length(fill_first_row > 0)) {
-      wide[1, fill_first_row] <- 0.0   # at the start step fcn.s are 0
-    }
     fill_na <- setnafill(wide, type = "locf")
-    # pivot longer, and apply isotonic regression
-    average <- data.table(x = fill_na$x, G = 0L, x_rc = rowMeans(fill_na[, -c("x")]))
-    return(average)
+    # add NA values at the position after the curves
+    n <- nrow(fill_na)
+    add_na <- as.data.table(lapply(colnames(last_indices), function(c_name) {
+      col <- fill_na[, ..c_name]    # pick column c_name
+      last_index <- as.numeric(last_indices[1, ..c_name]) + 1   # first NA value
+      if (last_index <= n) {
+        col[last_index:n] <- NA    # and fill end with NAs
+      }
+      return(col)
+    }))
+    if (!iso) {
+      # average pointwise over all curves who are defined for a given x-value
+      return(data.table(x = fill_na$x, G = 0L, x_rc = rowMeans(add_na, na.rm = T)))
+    } else {
+      # average using isotonic regression
+      return(
+        melt(cbind(fill_na[, "x"], add_na), id.vars = "x", value.name = "x_rc")[
+          !is.na(x_rc)][order(x, -x_rc)][
+          filter_jumps(x_rc), .(x = x, G = 0L, x_rc = monotone(x_rc))]
+      )
+    }
   }
   collect_fits$Radius <- factor(collect_fits$Radius)
   # isotonic fit on previous conditional estimates, and set Group to 0
@@ -719,6 +747,13 @@ avg_fits +
 ggsave("./../test/iso_fits-local-avg.pdf", width = 300, height = 200,
        unit = "mm")
 
+result <- get_fits(radii, function(r) get_balls(r, max_dist, disjoint = T))
+collect_fits <- result$fits
+collect_coverings <- result$coverings
+#collect_fits <- data.table(read.csv("./../tmp_results/local_isotonic_fits_disjoint.csv",
+# row.names = 1))
+#collect_coverings <- lapply(radii, function(r) get_balls(r, max_dist, disjoint = T))
+
 # look at fits of r "dispersed" data, i.e., data points with r distance --------
 radii <- factor(c(1, 3, 6, 10, 15, 20), ordered = T)
 result <- get_fits(radii, get_r_distant_points)
@@ -738,3 +773,108 @@ ggsave("./../test/iso_fits-distance.pdf", width = 400, height = 600,
 plot_averages(collect_fits)
 ggsave("./../test/iso_fits-distance-avg.pdf", width = 300, height = 200,
        unit = "mm")
+
+# make nice plots --------------------------------------------------------------
+# use scaling defined for reliability diagram in plots_for_followUpPaper.R
+
+radii <- c(0, 5, 10, 25, 50, 100, 1000)
+collect_fits <- data.table(read.csv("./../tmp_results/local_isotonic_fits.csv",
+                                    row.names = 1))
+
+averaged_fits <- average_fits(collect_fits, iso = T)
+plot_min <- my_trans(min(c(averaged_fits$x, averaged_fits$x_rc)))
+plot_max <- my_trans(max(c(averaged_fits$x, averaged_fits$x_rc)))
+
+create_row <- function(row, show_legend = F) {
+  dt <- filter(averaged_fits, Model %in% row)
+
+  return(
+    ggplot(dt, aes(x = my_trans(x))) +
+      facet_wrap(~factor(Model, ordered = T, levels = row), nrow = 1) +
+      geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
+                  linetype = "dashed") +
+      geom_step(aes(y = my_trans(x_rc), color = factor(Radius, ordered = T)), size = 0.4,
+                show.legend = show_legend) +
+      scale_color_brewer(name = "Radius", palette = "Paired") +
+      scale_x_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
+      scale_y_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
+      xlab(NULL) +
+      ylab(NULL) +
+      ggtitle(NULL) +
+      my_theme +
+      theme(aspect.ratio = 1, panel.grid.major = element_blank(), legend.position = "bottom",
+            panel.grid.minor = element_blank(), plot.margin = margin(5.5, 3.5, 5.5, 3.5))
+  )
+}
+
+rows <- list(c("FMC", "LG", "LM"), c("SMA", "LRWA"))
+
+combine <- grid.arrange(create_row(rows[[1]]), create_row(rows[[2]]),
+                        get_legend(create_row(rows[[2]], show_legend = T)),
+                        nrow = 3, heights = c(0.45, 0.45, 0.1),
+                        top = textGrob("Averaged Local Reliability Curves",
+                                       gp = gpar(fontsize = title_size)),
+                        bottom = textGrob("Forecasted mean",
+                                       gp = gpar(fontsize = 11)),
+                        left = textGrob("Conditional mean", rot = 90,
+                                       gp = gpar(fontsize = 11)))
+
+file_path <- file.path(fpath, paste0("Appendix_LocalReliabilityDiagram_new_iso", add_name, ".pdf"))
+ggsave(file_path, width = 145, height = 140, unit = "mm", plot = combine)
+
+construct_circles <- function(radius) {
+  x_midpoints <- seq(min(cells$X), max(cells$X), radius)
+  y_midpoints <- seq(min(cells$Y), max(cells$Y), radius)
+
+  collect_circles <- list()
+  i <- 1
+  for (x_index in x_midpoints) {    # we iterate over cell indices not coordinates
+    for (y_index in y_midpoints) {
+      x_mid <- 5.45 + 0.1 * x_index   # transform index to position (longitude)
+      y_mid <- 35.75 + 0.1 * y_index  # (latitude)
+      r <- radius * 0.1
+      # if circle doesn't hit testing region, skip it
+      if (all((x_mid - cells$LON)^2 + (y_mid - cells$LAT)^2 > r^2)) {
+        next
+      }
+      x <- seq(x_mid - r, x_mid + r, 0.1)
+
+      df <- data.frame(x = c(x, rev(x)), sign = rep(c(1, -1), each = length(x))) %>%
+        # if difference is small negative set it to zero
+        mutate(d = r^2 - (x - x_mid)^2, d = ifelse(d >= 0 | d < -10^-9, d, 0)) %>%
+        transmute(x = x, y = y_mid + sign * sqrt(d), G = i)
+
+      collect_circles[[i]] <- df
+      i <- i + 1
+    }
+  }
+  return(do.call(rbind, collect_circles))
+}
+
+radius <- radii[4]
+circles <- construct_circles(radius)
+
+# visualize covering with balls
+covering_plot <- ggplot() +
+  geom_sf(data = filter(europe, name == "Italy"), color = "gray", fill = "gray",
+          size = 0.2) +
+  geom_path(data = circles, aes(x = x, y = y, group = G), color = "black") +
+  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
+  scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
+  scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
+  ggtitle("Cover Testing Region with Balls") +
+  my_theme
+
+file_path <- file.path(fpath, "Appendix_LocalNeighborhoods2.pdf")
+ggsave(file_path, width = 80, height = 100, unit = "mm")
+
+# visualize all subsets
+all_subsets <- list()
+for (i in 1:length(radii)) {
+  r <- radii[i]
+  all_subsets[[i]] <- visualize_subsets(get_balls(r, max_dist, disjoint = T), r, add_legend = F)
+}
+combine <- grid.arrange(all_subsets[[1]], all_subsets[[2]], all_subsets[[3]],
+                        all_subsets[[4]], all_subsets[[5]], all_subsets[[6]],
+                        all_subsets[[7]], top = "Disjoint local Neighborhoods",
+                        ncol = 3)
