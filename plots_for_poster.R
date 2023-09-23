@@ -72,7 +72,7 @@ one_pred <- ggplot() +
   scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_viridis_c(name = "Pred.\nmean",
-                       breaks = 10^(-6:-2), labels = c("e-6", "", "e-4", "", "e-2"),
+                       breaks = 10^(-6:-2), labels = c("1e-6", "", "1e-4", "", "1e-2"),
                        trans = "log10", option = "magma",
                        guide = guide_colorbar(barheight = unit(40, "mm"))) +
   scale_color_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = "black"),
@@ -187,23 +187,32 @@ my_breaks_t <- c(-10^(c(-2, -4, -6)), 0, 10^(c(-6, -4)))
 minor_breaks_t <- c(-10^(-2:-7), 0, 10^(-7:-3))
 my_labels_t <- c(paste("-1e-", c(2, 4, 6)), "0", paste("1e-", c(6, 4)))
 
+point_size <- 2.5
+point_alpha <- 0.4
+
 temp_plot <- ggplot(diff_scores_t) +
-  geom_vline(data = filter(diff_scores_t, earthquake > 0),
-             aes(xintercept = X, linetype = "Obs. earthquakes"),
-             alpha = 0.2, color = "gray", size = 0.3) +
-  geom_point(aes(x = X, y = value, color = Model), size = 0.75, alpha = 0.4) +
+  # plot points going with no earthquakes first!
+  # (that is why we separated geom point in two to define order of drawing groups)
+  geom_point(data = filter(diff_scores_t, !earthquake),
+             aes(x = X, y = value, color = Model, shape = earthquake),
+             size = point_size, alpha = point_alpha) +
+  # add black borders to triangle used for earthquake days
+  geom_point(data = filter(diff_scores_t, earthquake), aes(x = X, y = value),
+             color = "black", shape = 2, size = point_size, stroke = 0.5,
+             alpha = point_alpha) +
+  # plot triangles
+  geom_point(data = filter(diff_scores_t, earthquake),
+             aes(x = X, y = value, color = Model, shape = earthquake),
+             size = point_size, alpha = point_alpha) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores_t$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores_t))) +
-  scale_color_manual(name = "LM vs.", values = model_colors, breaks = ana_models,
-                     guide = guide_legend(order = 1, override.aes = list(alpha = 1,
-                                                                         size = 1))) +
-  scale_linetype_manual(name = "Obs.\nearthquakes", values = c("Obs. earthquakes" = 1),
-                        labels = "",
-                        guide = guide_legend(override.aes = list(alpha = 1, size = 0.6),
-                                             order = 2)) +
   scale_y_continuous(trans = my_trans2, breaks = my_breaks_t, labels = my_labels_t,
                      minor_breaks = minor_breaks_t) +
+  scale_color_manual(name = "LM vs.", values = model_colors, breaks = ana_models,
+                     guide = guide_legend(order = 1, override.aes = list(alpha = 1))) +
+  scale_shape_manual(name = "Earthquake\ncount", labels = c("FALSE" = "= 0", "TRUE" = "> 0"),
+                     values = c("FALSE" = 16, "TRUE" = 17)) +
   annotate(geom = "text", label = "FMC/LG/SMA preferred", x = 50, y = 0.001,
            size = label_size / .pt * 0.8, hjust = 0) +
   annotate(geom = "text", label = "LM preferred", x = 50, y = -0.005,
@@ -447,7 +456,7 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
   xlab("Forecasted mean") +
   ylab("Conditional mean") +
   ggtitle("Reliability Diagram") +
-  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.002, label = label),
+  geom_text(data = collect_stats, mapping = aes(x = 10^(-9), y = 0.001, label = label),
             size = label_size / .pt * 0.9, hjust = 0, vjust = 0, family = "MiriamLibre") +
   my_theme +
   theme(strip.background = element_blank(), aspect.ratio = 1,
@@ -456,7 +465,7 @@ main_plot <- ggplot(recal_models, aes(x = x)) +
 combine_plots <- main_plot + inset_histograms
 
 file_path <- file.path(fpath, "Poster_Fig5.pdf")
-ggsave(file_path, width = 270, height = 260, unit = "mm", plot = combine_plots)
+ggsave(file_path, width = 270, height = 245, unit = "mm", plot = combine_plots)
 
 # for daily forecasts comparison with result from Jonas, use quadratic scoring fcn!
 

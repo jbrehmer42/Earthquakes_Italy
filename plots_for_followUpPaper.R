@@ -117,7 +117,7 @@ eq_hist <- events %>%
   # last bin has 1 observations that is not displayed due to log10 transformation
   # --> display it manually
   geom_segment(x = my_breaks[n_breaks], xend = my_breaks[n_breaks + 1],
-             y = 0.008, yend = 0.008, color = mag_colors[n_breaks], size = 0.3) +
+             y = 0.01, yend = 0.01, color = mag_colors[n_breaks], size = 0.3) +
   scale_fill_manual(values = setNames(mag_colors, 1:n_breaks)) +
   scale_y_log10(name = NULL) +
   scale_x_continuous(name = NULL, breaks = my_breaks + eps) +
@@ -668,7 +668,7 @@ colnames(murphy_df) <- model_names
 murphy_df <- murphy_df / n_days
 
 # or read it in
-murphy_df <- read.csv(file.path(fpath, "murphy_df.csv"))
+murphy_df <- read.csv("./figures4/murphy_df.csv")
 
 murphy_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
@@ -745,7 +745,7 @@ df_collect <- df_collect %>%
   mutate(Type = ifelse(Type == "MCB", "Miscalibration", "Discrimination"))
 
 # or read precomputed values in
-df_collect <- read.csv(file.path(fpath, "murphy-MCB-DSC.csv"))
+df_collect <- read.csv("./figures4/tmp_results/murphy-MCB-DSC.csv")
 
 murphy_score_cmps <- ggplot(df_collect) +
   facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
@@ -938,7 +938,7 @@ ymax <- 6.9
 # axis breaks and labels
 breaks <- c(0, 10^c(-8, -6, -4, -2, 0))
 t_breaks <- my_trans(breaks)
-labels <- c("0", rep("", length(breaks) - 2), "1")
+labels <- rep("", length(breaks))
 # position of score components
 text_x <- 0.02
 text_y <- 15
