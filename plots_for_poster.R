@@ -222,7 +222,7 @@ temp_plot <- ggplot(diff_scores_t) +
   ggtitle(NULL) +
   my_theme +
   theme(legend.position = "right", legend.text = element_text(size = label_size),
-        plot.margin = margin(5.5, 35, 5.5, 5.5))
+        plot.margin = margin(5.5, 41.5, 5.5, 5.5))
 
 file_path <- file.path(fpath, "Poster_Fig3.pdf")
 ggsave(file_path, width = 370, height = 105, unit = "mm", plot = temp_plot)
