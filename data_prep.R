@@ -34,7 +34,7 @@ library(Matrix)
 source(file.path(rpath, "functions_prep.R"))
 
 # Set model names and their colors
-model_names <- c("LM", "FMC", "LG", "SMA", "LRWA")
+model_names <- c("LM", "FCM", "LG", "SMA", "LRWA")
 model_colors <- c("black", "darkgreen", "blue", "red")
 # Define last day where model evaluation is possible (needed
 # because we treat 7-day periods)

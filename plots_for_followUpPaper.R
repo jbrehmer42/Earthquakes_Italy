@@ -16,7 +16,7 @@ source("data_prep.R")
 source("functions_eval.R")    # for elementary score
 
 # use standard colors of ggplot for discrete variables
-model_colors <- c("FMC" = "#F8766D", "LG" = "#00BF7D",  "LM" = "#A3A500",
+model_colors <- c("FCM" = "#F8766D", "LG" = "#00BF7D",  "LM" = "#A3A500",
                   "SMA" = "#00B0F6", "LRWA" = "#E76BF3")
 
 cmp_model <- "LM"
@@ -25,7 +25,7 @@ ana_models <- model_names[model_names != cmp_model]
 
 new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
-fpath <- "./figures5"
+fpath <- "./figures6"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -160,7 +160,7 @@ finish <- grid.arrange(combine,
 file_path <- file.path(fpath, "Fig1_Earthquakes.pdf")
 ggsave(file_path, width = 140, height = 100, unit = "mm", plot = finish)
 
-rm(eq_map, eq_count, combine, finish)
+rm(eq_map, eq_hist, combine, finish, annotate_symbols)
 
 ################################################################################
 # Figure 2: Distribution of forecasts over time and space
@@ -202,6 +202,9 @@ pred_by_cell_long <- pred_one_day %>%
   right_join(cells, by = "N") %>%
   select(LON, LAT, all_of(model_names)) %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model")
+
+# should we censor data?
+# pred_by_cell_long <- mutate(pred_by_cell_long, value = pmax(value, 10^-7))
 
 events_by_cell <- events %>%
   filter(TS >= times[i_time], TS < times[i_time] + days(7)) %>%
@@ -247,7 +250,7 @@ create_row <- function(row, only_legend = F) {
 
 spat_subtitle <- paste0("For the 7-day Period Following ", as.character(times[i_time]),
                         ", marked *")
-spat_plot <- grid.arrange(create_row(c("FMC", "LG", "LM")), create_row(c("SMA", "LRWA")),
+spat_plot <- grid.arrange(create_row(c("FCM", "LG", "LM")), create_row(c("SMA", "LRWA")),
                           nrow = 2)
 spat_plot <- grid.arrange(spat_plot, create_row(model_names, only_legend = T), nrow = 1,
                           widths = c(0.85, 0.15),
@@ -393,18 +396,30 @@ scores <- data.frame(scores) %>%
 colnames(scores) <- c(model_names, "X", "earthquake")
 scores_long <- pivot_longer(scores, cols = all_of(model_names), names_to = "Model")
 
-score_plot <- ggplot(scores_long) +
-  geom_point(aes(x = X, y = value, color = Model, shape = earthquake, alpha = earthquake),
-             size = 0.75) +
+point_size <- 0.75
+point_alpha <- 0.4
+
+score_plot <- ggplot() +
+  geom_point(data = filter(scores_long, !earthquake),
+             aes(x = X, y = value, color = Model, shape = earthquake),
+             size = point_size, alpha = point_alpha) +
+  # add black borders to triangle used for earthquake days
+  geom_point(data = filter(scores_long, earthquake), aes(x = X, y = value),
+             color = "black", shape = 2, size = point_size, stroke = 0.5,
+             alpha = point_alpha) +
+  # plot triangles
+  geom_point(data = filter(scores_long, earthquake),
+             aes(x = X, y = value, color = Model, shape = earthquake),
+             size = point_size, alpha = point_alpha) +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
   scale_color_manual(name = "", values = model_colors,
                      guide = guide_legend(order = 1, direction = "horizontal",
-                                          override.aes = list(alpha = 1, size = 0.75))) +
-  scale_shape_discrete(name = "earthquake", labels = c("No", "At least one"),
-                       guide = guide_legend(override.aes = list(alpha = 1, size = 1),
-                                            direction = "vertical", title.position = "right")) +
-  scale_alpha_manual(values = c("TRUE" = 0.7, "FALSE" = 0.4), guide = "none") +
+                                          override.aes = list(alpha = 1))) +
+  scale_shape_manual(name = "earthquake", labels = c("No", "At least one"),
+                     values = c("FALSE" = 16, "TRUE" = 17),
+                     guide = guide_legend(override.aes = list(alpha = 1, size = 1),
+                                          direction = "vertical", title.position = "right")) +
   scale_y_log10() +
   xlab(NULL) +
   ylab("Score") +
@@ -413,7 +428,7 @@ score_plot <- ggplot(scores_long) +
   theme(legend.position = "bottom", legend.box = "horizontal", legend.box.just = "center")
 
 combine_plots <- grid.arrange(score_plot, nrow = 1,
-                              top = textGrob(paste(add_title, "Scores by Day"),
+                              top = textGrob(paste(add_title, "Score by Day"),
                                              gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, paste0("Fig3_DailyScores", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 83, unit = "mm", plot = combine_plots)
@@ -423,21 +438,32 @@ diff_scores <- scores %>%
   select(X, earthquake, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
 
-temp_plot <- ggplot(diff_scores) +
-  geom_point(aes(x = X, y = value, color = Model, shape = earthquake, alpha = earthquake),
-             size = 0.75) +
+temp_plot <- ggplot() +
+  # plot points going with no earthquakes first!
+  # (that is why we separated geom point in two to define order of drawing groups)
+  geom_point(data = filter(diff_scores, !earthquake),
+             aes(x = X, y = value, color = Model, shape = earthquake),
+             size = point_size, alpha = point_alpha) +
+  # add black borders to triangle used for earthquake days
+  geom_point(data = filter(diff_scores, earthquake), aes(x = X, y = value),
+             color = "black", shape = 2, size = point_size, stroke = 0.5,
+             alpha = point_alpha) +
+  # plot triangles
+  geom_point(data = filter(diff_scores, earthquake),
+             aes(x = X, y = value, color = Model, shape = earthquake),
+             size = point_size, alpha = point_alpha) +
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
-  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors, breaks = ana_models,
-                     guide = guide_legend(order = 1, direction = "horizontal",
-                                          override.aes = list(alpha = 1, size = 0.75))) +
-  scale_shape_discrete(name = "earthquake", labels = c("No", "At least one"),
-                       guide = guide_legend(override.aes = list(alpha = 1, size = 1),
-                                            direction = "vertical", title.position = "right")) +
-  scale_alpha_manual(values = c("TRUE" = 0.7, "FALSE" = 0.4), guide = "none") +
   scale_y_continuous(trans = my_trans, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks) +
+  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors, breaks = ana_models,
+                     guide = guide_legend(order = 1, direction = "horizontal",
+                                          override.aes = list(alpha = 1))) +
+  scale_shape_manual(name = "earthquake", labels = c("No", "At least one"),
+                     values = c("FALSE" = 16, "TRUE" = 17),
+                     guide = guide_legend(override.aes = list(alpha = 1, size = 1),
+                                          direction = "vertical", title.position = "right")) +
   xlab(NULL) +
   ylab("Difference") +
   ggtitle(NULL) +
@@ -445,7 +471,7 @@ temp_plot <- ggplot(diff_scores) +
   theme(legend.position = "bottom", legend.box = "horizontal", legend.box.just = "center")
 
 combine_plots <- grid.arrange(temp_plot, nrow = 1,
-                              top = textGrob(paste(add_title, "Score Differences by Day"),
+                              top = textGrob(paste(add_title, "Score Difference by Day"),
                                              gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, paste0("Fig4_ScoreDiffTemp", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 83, unit = "mm", plot = combine_plots)
@@ -506,7 +532,7 @@ number_spatial_plot <- ggplot(rbind(cbind(diff_scores_n, C = "Number component")
   theme(legend.position = "bottom")
 
 combine_plots <- grid.arrange(number_spatial_plot,
-                              top = textGrob("Poisson Score Differences by Day",
+                              top = textGrob("Poisson Score Difference by Day",
                                              gp = gpar(fontsize = title_size)),
                               left = textGrob("Difference", rot = 90,
                                               gp = gpar(fontsize = 11)))
@@ -546,7 +572,7 @@ number_spatial_plot <- ggplot(rbind(cbind(diff_scores_n, C = "Number component")
   theme(legend.position = "bottom")
 
 combine_plots <- grid.arrange(number_spatial_plot,
-                              top = textGrob("Poisson Score Differences by Day",
+                              top = textGrob("Poisson Score Difference by Day",
                                              gp = gpar(fontsize = title_size)),
                               left = textGrob("Difference", rot = 90,
                                               gp = gpar(fontsize = 11)))
@@ -634,13 +660,107 @@ spat_plot <- ggplot() +
 
 combine_plots <- grid.arrange(
   spat_plot, nrow = 1,
-  top = textGrob(paste("Average", add_title, "Score Differences by Grid Cell"),
+  top = textGrob(paste("Average", add_title, "Score Difference by Grid Cell"),
                  gp = gpar(fontsize = title_size))
 )
 file_path <- file.path(fpath, paste0("Fig6_ScoreDiffSpat", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 160, unit = "mm", plot = combine_plots)
 
 rm(scores, diff_scores, combine_plots, spat_plot, eq_loc)
+
+################################################################################
+# Patton diagramm
+################################################################################
+
+s_b <- function(x, y, b) {
+  b_1 <- b - 1
+  if (b == 0) {
+    qu <- y / x
+    s <- qu - log(qu) - 1
+  } else if (b == 1) {
+    s <- y * log(y / x) - y + x
+  } else {
+    s <- 1 / (b * b_1) * (y^b - x^b) - 1 / b_1 * x^b_1 * (y - x)
+  }
+  return(sum(s) / n_days)
+}
+
+# if s_b is the Patton score with parameter b this modified version corresponds to
+# s_b_mod(x, y) = s_b(x, y) + s_b(1, y) + 0.5 y^abs(b) - b/2 y + (3-b)/2
+# whereby the evaluation was simplified
+s_b_mod <- function(x, y, b) {
+  if (b == 0) {
+    s <- y / x - y + log(x) + 2
+  } else if (b == 1) {    # Poisson score
+    s <- (-1) * y * log(x) + x
+  } else {
+    b_1 <- b - 1
+    s <- 1 / (b * b_1) * (1 - x^b) - 1 / b_1 * x^b_1 * (y - x) + 0.5 * y^abs(b) +
+      (1 / b_1 - b / 2) * y + (3 - b) / 2 - 1 / b_1
+  }
+  return(sum(s) / n_days)
+}
+
+s_patt <- compiler::cmpfun(s_b_mod) # compile function to reduce runtime a bit
+
+n_b <- 10
+# bs <- seq(0.999, 2.001, length.out = n_b)
+bs <- seq(0.999, 1.001, length.out = n_b)
+bs <- seq(1.99999, 2.00001, length.out = n_b)
+
+patton_df <- matrix(0, nrow = length(bs), ncol = length(models))
+for (m in 1:length(models)) {
+  print(m)
+  for (t in 1:n_b) {
+    cat("*")
+    patton_df[t, m] <- s_patt(models[[m]], obs, bs[t])
+  }
+}
+colnames(patton_df) <- model_names
+
+patton_df <- read.csv("./../tmp_results/patton_df.csv")
+
+f <- function(b) {
+  ifelse(b < 1.5, -1.997 * b + 2.997, 3.997 * b - 5.995)
+}
+
+f <- function(b) 1
+
+patton_plot <- data.frame(patton_df) %>%
+  mutate(b = bs) %>%
+  pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
+  mutate(value = value * f(b)) %>%
+  ggplot() +
+  geom_line(aes(x = b, y = value, color = Model), size = 0.3) +
+  scale_color_manual(name = NULL, values = model_colors,
+                     guide = guide_legend(override.aes = list(size = 0.5))) +
+  xlab("b") +
+  ylab("Mean score") +
+  my_theme +
+  theme(legend.position = c(0.01, 0.99), legend.justification = c(0, 1))
+
+combine <- grid.arrange(patton_plot, nrow = 1,
+                        top = textGrob("Mean Score of Patton Scoring Functions",
+                                       gp = gpar(fontsize = title_size)))
+
+file_path <- file.path(fpath, "Fig10_PattonPlot_4.pdf")
+ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
+
+tmp <- data.frame(patton_df) %>% mutate(b = bs)
+
+tmp[, model_names] <- tmp[, model_names] - apply(tmp[, model_names], 1, min)
+
+tmp %>%
+  pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
+  mutate(value = value) %>%
+  ggplot() +
+  geom_line(aes(x = b, y = value, color = Model), size = 0.3) +
+  scale_color_manual(name = NULL, values = model_colors,
+                     guide = guide_legend(override.aes = list(size = 0.5))) +
+  xlab("b") +
+  ylab("Mean score") +
+  my_theme +
+  theme(legend.position = c(0.99, 0.99), legend.justification = c(1, 1))
 
 ################################################################################
 # Murphy diagramm
@@ -668,7 +788,8 @@ colnames(murphy_df) <- model_names
 murphy_df <- murphy_df / n_days
 
 # or read it in
-murphy_df <- read.csv("./figures4/murphy_df.csv")
+murphy_df <- read.csv("./figures4/murphy_df.csv") %>%
+  rename(FCM = FMC)
 
 murphy_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
@@ -681,7 +802,7 @@ murphy_diag <- data.frame(murphy_df) %>%
   scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors,
                      breaks = ana_models,
                      guide = guide_legend(override.aes = list(size = 0.5))) +
-  xlab(expression(paste("Threshold log", theta))) +
+  xlab(expression(paste("Threshold log", (theta)))) +
   ylab("Elementary score") +
   my_theme +
   theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0))
@@ -745,7 +866,8 @@ df_collect <- df_collect %>%
   mutate(Type = ifelse(Type == "MCB", "Miscalibration", "Discrimination"))
 
 # or read precomputed values in
-df_collect <- read.csv("./figures4/tmp_results/murphy-MCB-DSC.csv")
+df_collect <- read.csv("./figures4/murphy-MCB-DSC.csv") %>%
+  mutate(Model = ifelse(Model == "FMC", "FCM", Model))
 
 murphy_score_cmps <- ggplot(df_collect) +
   facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
@@ -754,7 +876,7 @@ murphy_score_cmps <- ggplot(df_collect) +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(override.aes = list(size = 0.5))) +
   scale_x_continuous(breaks = -4:1 * 5) +
-  xlab(expression(paste("Threshold log", theta))) +
+  xlab(expression(paste("Threshold log", (theta)))) +
   ylab(NULL) +
   my_theme +
   theme(legend.position = c(0.99, 0.42), legend.justification = c(1, 1))
@@ -871,8 +993,11 @@ for (i in 1:length(models)) {
 }
 
 # or load already recalibrated values
-recal_models <- read.csv("./../tmp_results/recal_models_all-Til-100-5.csv", row.names = 1)
-collect_stats <- read.csv("./../tmp_results/collect_stats_5.csv", row.names = 1)
+recal_models <- read.csv("./../tmp_results/recal_models_all-Til-100-5.csv",
+                         row.names = 1) %>%
+  mutate(Model = ifelse(Model == "FMC", "FCM", Model))
+collect_stats <- read.csv("./../tmp_results/collect_stats_5.csv", row.names = 1) %>%
+  mutate(Model = ifelse(Model == "FMC", "FCM", Model))
 
 col_ecdfs <- list()
 for (i in 1:length(models)) {
@@ -901,7 +1026,7 @@ mean_ecdf <- do.call(rbind, col_ecdfs) %>%
   arrange(x) %>%
   setnafill(type = "locf") %>%
   slice(floor(seq(1, nrow(.), length.out = 10^5))) %>%   # sample on grid for plotting
-  transmute(x = x, y = rowMeans(cbind(LM, FMC, LG, SMA)))
+  transmute(x = x, y = rowMeans(cbind(LM, FCM, LG, SMA)))
 
 my_trans <- function(x) {
   # first known values, then values we want to evaluate --> fill with last observation
@@ -956,8 +1081,8 @@ ymax <- 0.6
 t_breaks <- seq(0, 2, length.out = 6)
 labels <- c("0", rep("", length(breaks) - 2), 2)
 # position of score components
-text_x <- 0.03
-text_y <- 1.45
+text_x <- 1.35
+text_y <- 1.40
 # add to name
 add_name <- "_std"
 # cut confidence band at plot max
@@ -988,7 +1113,7 @@ for (i in 1:length(models)) {
 }
 
 # specify rows separately to center align bottom row
-rows <- list(c("FMC", "LG", "LM"), c("SMA", "LRWA"))
+rows <- list(c("FCM", "LG", "LM"), c("SMA", "LRWA"))
 
 create_row <- function(row) {
   dt_recal <- filter(recal_models, Model %in% row)
@@ -1055,3 +1180,6 @@ finish <- ggplot() +
 
 file_path <- file.path(fpath, paste0("Fig8_ReliabilityDiagram", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 125, unit = "mm", plot = finish)
+
+rm(col_ecdfs, recal_models, collect_stats, combine, finish, small_hist,
+   inset_histograms, mean_ecdf, my_hist)
