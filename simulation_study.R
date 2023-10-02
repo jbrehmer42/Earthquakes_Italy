@@ -69,6 +69,8 @@ S_theta <- function(x, y, theta) {
   return(s)
 }
 
+# Simulation study run ---------------------------------------------------------
+
 run_simulation_study <- function(n_vals, B = 100) {
   scores <- data.frame()
   reliability <- data.frame()
@@ -76,8 +78,8 @@ run_simulation_study <- function(n_vals, B = 100) {
 
   # grid for murphy diagram
   n_theta <- 100
-  log_grid <- seq(-24, 4, len = n_theta)
-  grd <- exp(log_grid)
+  log_grid <- seq(-150, 4, len = n_theta - 1)
+  grd <- c(0, 10^log_grid)
 
   for (n in n_vals) {
     cat("\n:", n, ": ")
@@ -119,13 +121,15 @@ run_simulation_study <- function(n_vals, B = 100) {
 
         murphy <- rbind(
           murphy,
-          data.frame(n = n, fcst = forecaster, I = b, x = log_grid, y = elem_scores)
+          data.frame(n = n, fcst = forecaster, I = b, x = grd, y = elem_scores)
         )
       }
     }
   }
   return(list(scores = scores, reliability = reliability, murphy = murphy))
 }
+
+# Plots ------------------------------------------------------------------------
 
 
 plot_forecaster <- function(data) {
@@ -200,24 +204,80 @@ plot_one_n <- function(results, n_pick) {
   return(my_plot)
 }
 
+plot_rel <- function(reliability) {
+  d <- 10^10
+  my_trans <- function(x) sign(x) * log(abs(x) * d  + 1, base = 10)
+
+  rel_means <- reliability %>%
+    group_by(n, fcst, x) %>%
+    summarise(x_rc = mean(x_rc), .groups = "drop")
+
+  my_plot <- ggplot(mapping = aes(x = my_trans(x), y = my_trans(x_rc), color = fcst)) +
+    facet_wrap(~fcst) +
+    geom_line(data = reliability, mapping = aes(group = paste(fcst, I)), alpha = 0.1,
+              show.legend = F) +
+    geom_line(data = rel_means, show.legend = F) +
+    geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
+                  linetype = "dashed") +
+    xlab("Forecasted mean") +
+    ylab("Conditional mean") +
+    labs(color = "Forecaster") +
+    ggtitle("Reliability Diagram") +
+    theme_bw() +
+    theme(strip.background = element_blank())
+
+  return(my_plot)
+}
+
+plot_murphy <- function(murphy) {
+  d <- 10^10
+  my_trans <- function(x) sign(x) * log(abs(x) * d  + 1, base = 10)
+
+  murphy_means <- murphy %>%
+    group_by(n, fcst, x) %>%
+    summarise(y = mean(y), .groups = "drop")
+
+  my_plot <- ggplot(mapping = aes(x = my_trans(x), y = y, color = fcst)) +
+    geom_line(data = murphy, mapping = aes(group = paste(fcst, I)), alpha = 0.1) +
+    geom_line(data = murphy_means) +
+    xlab(expression(paste("log", (theta)))) +
+    ylab("Elementary score") +
+    labs(color = "Forecaster") +
+    ggtitle("Murphy Diagram") +
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+  return(my_plot)
+}
+
+# Analysis ---------------------------------------------------------------------
+
 cmp_run_sim <- compiler::cmpfun(run_simulation_study)
 
-l_results <- cmp_run_sim(10^7, B = 10)
+l_results <- cmp_run_sim(10^6, B = 100)
 
 
-results_summary <- scores %>%
+df_scores <- l_results$scores %>%
     group_by(n, fcst, Scoring, Type) %>%
     summarise(mean_val = mean(value),
               lower_q = quantile(value, 0.05),
               upper_q = quantile(value, 0.95),
               .groups = "drop")
-my_plot <- plot_results(results)
 
-my_plot <- plot_one_n(results, 10^7)
+# my_plot <- plot_results(df_scores)
 
-my_plot
-
-write.csv(results, "./../test/sim_study/results_4.csv")
-results <- read.csv("./../test/sim_study/results_4.csv")
-ggsave("./../test/sim_study/simulation_study_4_log.pdf", width = 240, height = 180,
+my_plot <- plot_one_n(df_scores, 10^6)
+ggsave("./../test/sim_study/sim5_scores.pdf", width = 240, height = 180,
        unit = "mm", plot = my_plot)
+
+my_plot <- plot_murphy(l_results$murphy)
+ggsave("./../test/sim_study/sim5_murphy.pdf", width = 240, height = 180,
+       unit = "mm", plot = my_plot)
+
+my_plot <- plot_rel(l_results$reliability)
+ggsave("./../test/sim_study/sim5_reliability.pdf", width = 240, height = 180,
+       unit = "mm", plot = my_plot)
+
+
+# write.csv(results, "./../test/sim_study/results_4.csv")
+# results <- read.csv("./../test/sim_study/results_4.csv")
