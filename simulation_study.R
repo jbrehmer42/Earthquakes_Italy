@@ -48,8 +48,8 @@ generate_scenario <- function(n) {
   df <- data.frame(
     y = y,
     mean_fcst = lambda,
-    under_fcst = 0.99 * lambda,
-    over_fcst = 1.01 * lambda,
+    under_fcst = 0.5 * lambda,
+    over_fcst = 1.5 * lambda,
     less_disc = mu
   )
 }
@@ -86,14 +86,14 @@ run_simulation_study <- function(n_vals, B = 100) {
     for (b in 1:B) {
       cat("*")
       data <- generate_scenario(n)
-      y <- data$y
+      y_save <- data$y          # we keep sorting y, so store a reference version
       fcsts <- select(data, -y)
 
       for(forecaster in names(fcsts)) {
         x <- fcsts[, forecaster]
-        ord <- order(x, y, decreasing = c(FALSE, TRUE))
+        ord <- order(x, y_save, decreasing = c(FALSE, TRUE))
         x <- x[ord]
-        y <- y[ord]
+        y <- y_save[ord]
         x_rc <- monotone(y)
 
         for (scf_name in names(scf_list)) {
@@ -205,21 +205,22 @@ plot_one_n <- function(results, n_pick) {
 }
 
 plot_rel <- function(reliability) {
-  d <- 10^10
+  d <- 10^6
   my_trans <- function(x) sign(x) * log(abs(x) * d  + 1, base = 10)
 
-  rel_means <- reliability %>%
-    group_by(n, fcst, x) %>%
-    summarise(x_rc = mean(x_rc), .groups = "drop")
+  my_breaks <- c(0, 10^c(-6, -4, -2, 0))
+  my_breaks <- my_trans(my_breaks)
+  my_labels <- c("0", paste0("1e", c(-6, -4, -2)), "1")
 
   my_plot <- ggplot(mapping = aes(x = my_trans(x), y = my_trans(x_rc), color = fcst)) +
     facet_wrap(~fcst) +
-    geom_line(data = reliability, mapping = aes(group = paste(fcst, I)), alpha = 0.1,
+    geom_step(data = reliability, mapping = aes(group = paste(fcst, I)), alpha = 0.5,
               show.legend = F) +
-    geom_line(data = rel_means, show.legend = F) +
-    geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
+    geom_abline(intercept = 0 , slope = 1, colour = "grey70", linewidth = 0.7,
                   linetype = "dashed") +
     xlab("Forecasted mean") +
+    scale_x_continuous(breaks = my_breaks, labels = my_labels) +
+    scale_y_continuous(breaks = my_breaks, labels = my_labels) +
     ylab("Conditional mean") +
     labs(color = "Forecaster") +
     ggtitle("Reliability Diagram") +
@@ -233,6 +234,10 @@ plot_murphy <- function(murphy) {
   d <- 10^10
   my_trans <- function(x) sign(x) * log(abs(x) * d  + 1, base = 10)
 
+  my_breaks <- c(0, 10^c(-8, -6, -4, -2, 0, 2))
+  my_breaks <- my_trans(my_breaks)
+  my_labels <- c("0", paste0("1e", c(-8, -6, -4, -2)), "1", "1e2")
+
   murphy_means <- murphy %>%
     group_by(n, fcst, x) %>%
     summarise(y = mean(y), .groups = "drop")
@@ -240,7 +245,8 @@ plot_murphy <- function(murphy) {
   my_plot <- ggplot(mapping = aes(x = my_trans(x), y = y, color = fcst)) +
     geom_line(data = murphy, mapping = aes(group = paste(fcst, I)), alpha = 0.1) +
     geom_line(data = murphy_means) +
-    xlab(expression(paste("log", (theta)))) +
+    scale_x_continuous(breaks = my_breaks, labels = my_labels) +
+    xlab(expression(theta)) +
     ylab("Elementary score") +
     labs(color = "Forecaster") +
     ggtitle("Murphy Diagram") +
@@ -254,8 +260,7 @@ plot_murphy <- function(murphy) {
 
 cmp_run_sim <- compiler::cmpfun(run_simulation_study)
 
-l_results <- cmp_run_sim(10^6, B = 100)
-
+l_results <- cmp_run_sim(10^7, B = 1)
 
 df_scores <- l_results$scores %>%
     group_by(n, fcst, Scoring, Type) %>%
@@ -266,17 +271,18 @@ df_scores <- l_results$scores %>%
 
 # my_plot <- plot_results(df_scores)
 
-my_plot <- plot_one_n(df_scores, 10^6)
-ggsave("./../test/sim_study/sim5_scores.pdf", width = 240, height = 180,
-       unit = "mm", plot = my_plot)
+add <- "gamma"
+my_plot <- plot_one_n(df_scores, 10^7)
+ggsave(paste0("./../test/sim_study/sim_", add, "_scores.pdf"),
+       width = 240, height = 180, unit = "mm", plot = my_plot)
 
 my_plot <- plot_murphy(l_results$murphy)
-ggsave("./../test/sim_study/sim5_murphy.pdf", width = 240, height = 180,
-       unit = "mm", plot = my_plot)
+ggsave(paste0("./../test/sim_study/sim_", add, "_murphy.pdf"),
+       width = 240, height = 180, unit = "mm", plot = my_plot)
 
 my_plot <- plot_rel(l_results$reliability)
-ggsave("./../test/sim_study/sim5_reliability.pdf", width = 240, height = 180,
-       unit = "mm", plot = my_plot)
+ggsave(paste0("./../test/sim_study/sim_", add, "_reliability.pdf"),
+       width = 240, height = 180, unit = "mm", plot = my_plot)
 
 
 # write.csv(results, "./../test/sim_study/results_4.csv")
