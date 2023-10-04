@@ -703,10 +703,8 @@ s_b_mod <- function(x, y, b) {
 
 s_patt <- compiler::cmpfun(s_b_mod) # compile function to reduce runtime a bit
 
-n_b <- 10
-# bs <- seq(0.999, 2.001, length.out = n_b)
-bs <- seq(0.999, 1.001, length.out = n_b)
-bs <- seq(1.99999, 2.00001, length.out = n_b)
+n_b <- 100
+bs <- seq(-2, 8, length.out = n_b)
 
 patton_df <- matrix(0, nrow = length(bs), ncol = length(models))
 for (m in 1:length(models)) {
@@ -718,26 +716,28 @@ for (m in 1:length(models)) {
 }
 colnames(patton_df) <- model_names
 
+patton_df <- data.frame(patton_df) %>% mutate(b = bs)
+
 patton_df <- read.csv("./../tmp_results/patton_df.csv")
 
-f <- function(b) {
-  ifelse(b < 1.5, -1.997 * b + 2.997, 3.997 * b - 5.995)
-}
+max_vals <- apply(patton_df[, model_names], 1, max)
+min_vals <- apply(patton_df[, model_names], 1, min)
 
-f <- function(b) 1
-
-patton_plot <- data.frame(patton_df) %>%
-  mutate(b = bs) %>%
+patton_plot <- patton_df %>%
+  mutate(across(all_of(model_names),
+                 function(vec) (vec - min_vals) / (max_vals - min_vals))) %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
-  mutate(value = value * f(b)) %>%
   ggplot() +
   geom_line(aes(x = b, y = value, color = Model), size = 0.3) +
+  geom_vline(xintercept = c(1, 2), linetype = "dashed", color = "darkgray", size = 0.5) +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(override.aes = list(size = 0.5))) +
   xlab("b") +
   ylab("Mean score") +
+  annotate("text", x = c(1.3, 2.3), y = c(0.8, 0.7), label = c("b=1", "b=2"),
+           size = 3, color = "darkgray") +
   my_theme +
-  theme(legend.position = c(0.01, 0.99), legend.justification = c(0, 1))
+  theme(legend.position = "bottom")
 
 combine <- grid.arrange(patton_plot, nrow = 1,
                         top = textGrob("Mean Score of Patton Scoring Functions",
@@ -746,21 +746,6 @@ combine <- grid.arrange(patton_plot, nrow = 1,
 file_path <- file.path(fpath, "Fig10_PattonPlot_4.pdf")
 ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
 
-tmp <- data.frame(patton_df) %>% mutate(b = bs)
-
-tmp[, model_names] <- tmp[, model_names] - apply(tmp[, model_names], 1, min)
-
-tmp %>%
-  pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
-  mutate(value = value) %>%
-  ggplot() +
-  geom_line(aes(x = b, y = value, color = Model), size = 0.3) +
-  scale_color_manual(name = NULL, values = model_colors,
-                     guide = guide_legend(override.aes = list(size = 0.5))) +
-  xlab("b") +
-  ylab("Mean score") +
-  my_theme +
-  theme(legend.position = c(0.99, 0.99), legend.justification = c(1, 1))
 
 ################################################################################
 # Murphy diagramm

@@ -78,7 +78,7 @@ run_simulation_study <- function(n_vals, B = 100) {
 
   # grid for murphy diagram
   n_theta <- 100
-  log_grid <- seq(-150, 4, len = n_theta - 1)
+  log_grid <- seq(-15, 4, len = n_theta - 1)
   grd <- c(0, 10^log_grid)
 
   for (n in n_vals) {
@@ -88,6 +88,7 @@ run_simulation_study <- function(n_vals, B = 100) {
       data <- generate_scenario(n)
       y_save <- data$y          # we keep sorting y, so store a reference version
       fcsts <- select(data, -y)
+      mean_y <- mean(y_save)
 
       for(forecaster in names(fcsts)) {
         x <- fcsts[, forecaster]
@@ -100,7 +101,7 @@ run_simulation_study <- function(n_vals, B = 100) {
           scf <- scf_list[[scf_name]]
           s <- scf(x, y)
           s_rc <- scf(x_rc, y)
-          s_mg <- scf(mean(y), y)
+          s_mg <- scf(mean_y, y)
 
           scores <- rbind(
             scores,
@@ -118,10 +119,15 @@ run_simulation_study <- function(n_vals, B = 100) {
         )
 
         elem_scores <- sapply(grd, function(theta) S_theta(x, y, theta))
+        elem_scores_rc <- sapply(grd, function(theta) S_theta(x_rc, y, theta))
+        elem_scores_mg <- sapply(grd, function(theta) S_theta(mean_y, y, theta))
 
         murphy <- rbind(
           murphy,
-          data.frame(n = n, fcst = forecaster, I = b, x = grd, y = elem_scores)
+          data.frame(n = n, fcst = forecaster, I = b, x = rep(grd, 3),
+                     Type = rep(c("Score", "MCB", "DSC"), each = length(grd)),
+                     y = c(elem_scores, elem_scores - elem_scores_rc,
+                           elem_scores_mg - elem_scores_rc))
         )
       }
     }
@@ -146,6 +152,7 @@ plot_forecaster <- function(data) {
 }
 
 plot_results <- function(results) {
+  # expects summary statistics
   pois <- ggplot(filter(results, Scoring == "pois")) +
     facet_wrap(~Type, scales = "free_y", nrow = 1) +
     geom_ribbon(aes(x = n, ymin = lower_q, ymax = upper_q, fill = fcst),
@@ -177,30 +184,33 @@ plot_results <- function(results) {
   return(my_plot)
 }
 
-plot_one_n <- function(results, n_pick) {
-  pois <- ggplot(filter(results, Scoring == "pois", n == n_pick)) +
+plot_scores <- function(results) {
+  pois <- ggplot(filter(results, Scoring == "pois")) +
     facet_wrap(~Type, scales = "free_y", nrow = 1) +
-    geom_pointrange(aes(x = fcst, y = mean_val, ymin = lower_q, ymax = upper_q,
-                        color = fcst), size = 0.75, show.legend = F) +
+    geom_point(aes(x = fcst, y = value, color = fcst, shape = factor(I))) +
     ggtitle("Poisson Score") +
     xlab(NULL) +
     ylab(NULL) +
     scale_y_log10() +
+    labs(shape = "Simmulation run") +
+    guides(color = "none", shape = "none") +
     theme_bw() +
     theme(strip.background = element_blank())
 
-  quad <- ggplot(filter(results, Scoring == "quad", n == n_pick)) +
+  quad <- ggplot(filter(results, Scoring == "quad")) +
     facet_wrap(~Type, scales = "free_y", nrow = 1) +
-    geom_pointrange(aes(x = fcst, y = mean_val, ymin = lower_q, ymax = upper_q,
-                        color = fcst), size = 0.75, show.legend = F) +
+    geom_point(aes(x = fcst, y = value, color = fcst, shape = factor(I))) +
     ggtitle("Quadratic Score") +
     xlab(NULL) +
     ylab(NULL) +
     scale_y_log10() +
+    labs(shape = "Simmulation run") +
+    guides(color = "none") +
     theme_bw() +
-    theme(strip.background = element_blank())
+    theme(strip.background = element_blank(), legend.position = "bottom")
 
-  my_plot <- grid.arrange(pois, quad, nrow = 2, top = "Simulation Study")
+  my_plot <- grid.arrange(pois, quad, nrow = 2, top = "Simulation Study",
+                          heights = c(0.45, 0.55))
   return(my_plot)
 }
 
@@ -212,20 +222,21 @@ plot_rel <- function(reliability) {
   my_breaks <- my_trans(my_breaks)
   my_labels <- c("0", paste0("1e", c(-6, -4, -2)), "1")
 
-  my_plot <- ggplot(mapping = aes(x = my_trans(x), y = my_trans(x_rc), color = fcst)) +
+  my_plot <- ggplot(mapping = aes(x = my_trans(x), y = my_trans(x_rc),
+                                  color = fcst, linetype = factor(I))) +
     facet_wrap(~fcst) +
-    geom_step(data = reliability, mapping = aes(group = paste(fcst, I)), alpha = 0.5,
-              show.legend = F) +
-    geom_abline(intercept = 0 , slope = 1, colour = "grey70", linewidth = 0.7,
+    geom_step(data = reliability, mapping = aes(group = paste(fcst, I)), alpha = 0.5) +
+    geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.7,
                   linetype = "dashed") +
     xlab("Forecasted mean") +
     scale_x_continuous(breaks = my_breaks, labels = my_labels) +
     scale_y_continuous(breaks = my_breaks, labels = my_labels) +
     ylab("Conditional mean") +
-    labs(color = "Forecaster") +
+    labs(color = "Forecaster", linetype = "Simulation run") +
+    guides(color = "none") +
     ggtitle("Reliability Diagram") +
     theme_bw() +
-    theme(strip.background = element_blank())
+    theme(strip.background = element_blank(), legend.position = "bottom")
 
   return(my_plot)
 }
@@ -238,20 +249,19 @@ plot_murphy <- function(murphy) {
   my_breaks <- my_trans(my_breaks)
   my_labels <- c("0", paste0("1e", c(-8, -6, -4, -2)), "1", "1e2")
 
-  murphy_means <- murphy %>%
-    group_by(n, fcst, x) %>%
-    summarise(y = mean(y), .groups = "drop")
-
-  my_plot <- ggplot(mapping = aes(x = my_trans(x), y = y, color = fcst)) +
-    geom_line(data = murphy, mapping = aes(group = paste(fcst, I)), alpha = 0.1) +
-    geom_line(data = murphy_means) +
+  my_plot <- ggplot(murphy,
+                    aes(x = my_trans(x), y = y, color = fcst)) +
+    facet_grid(paste("Run", I)~factor(Type, ordered = T, levels = c("Score", "MCB", "DSC")),
+               scales = "free_y") +
+    # geom_line(data = murphy, mapping = aes(group = paste(fcst, I)), alpha = 0.1) +
+    geom_line() +
     scale_x_continuous(breaks = my_breaks, labels = my_labels) +
     xlab(expression(theta)) +
     ylab("Elementary score") +
-    labs(color = "Forecaster") +
+    labs(color = "Forecaster", linetype = "Simulation run") +
     ggtitle("Murphy Diagram") +
     theme_bw() +
-    theme(legend.position = "bottom")
+    theme(legend.position = "bottom", strip.background = element_blank())
 
   return(my_plot)
 }
@@ -260,7 +270,7 @@ plot_murphy <- function(murphy) {
 
 cmp_run_sim <- compiler::cmpfun(run_simulation_study)
 
-l_results <- cmp_run_sim(10^7, B = 1)
+l_results <- cmp_run_sim(10^7, B = 5)
 
 df_scores <- l_results$scores %>%
     group_by(n, fcst, Scoring, Type) %>%
@@ -271,8 +281,8 @@ df_scores <- l_results$scores %>%
 
 # my_plot <- plot_results(df_scores)
 
-add <- "gamma"
-my_plot <- plot_one_n(df_scores, 10^7)
+add <- "exp_n7_B5"
+my_plot <- plot_scores(l_results$scores)
 ggsave(paste0("./../test/sim_study/sim_", add, "_scores.pdf"),
        width = 240, height = 180, unit = "mm", plot = my_plot)
 
@@ -284,6 +294,12 @@ my_plot <- plot_rel(l_results$reliability)
 ggsave(paste0("./../test/sim_study/sim_", add, "_reliability.pdf"),
        width = 240, height = 180, unit = "mm", plot = my_plot)
 
+data <- generate_scenario(10^7)
+table(data$y)
+print(mean(data$mean_fcst > data$less_disc))
 
-# write.csv(results, "./../test/sim_study/results_4.csv")
+
+write.csv(l_results$scores, paste0("./../test/sim_study/results_", add, "_scores.csv"))
+write.csv(l_results$murphy, paste0("./../test/sim_study/results_", add, "_murphy.csv"))
+write.csv(l_results$reliability, paste0("./../test/sim_study/results_", add, "_rel.csv"))
 # results <- read.csv("./../test/sim_study/results_4.csv")
