@@ -25,7 +25,7 @@ ana_models <- model_names[model_names != cmp_model]
 
 new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
-fpath <- "./figures6"
+fpath <- "./figures7"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -109,15 +109,23 @@ eq_map <- ggplot() +
   theme(panel.background = element_rect(fill = rgb(0.012, 0.663, 0.988, 0.3)),
         legend.text = element_text(size = 7))
 
-eq_hist <- events %>%
-  mutate(Bin = paste(sapply(MAG, function(m) sum(m >= my_breaks)))) %>%
-  ggplot() +
+df_hist <- events %>%
+  mutate(Bin = paste(sapply(MAG, function(m) sum(m >= my_breaks))))
+add_counts <- data.frame(
+  x = (my_breaks[-1] + my_breaks[-length(my_breaks)]) / 2,
+  counts = as.numeric(table(df_hist$Bin))
+) %>%
+  mutate(y = counts * 1.3, label = paste(counts))
+
+eq_hist <- ggplot(df_hist) +
   geom_histogram(aes(x = MAG, fill = Bin), breaks = my_breaks,
                  show.legend = F) +
   # last bin has 1 observations that is not displayed due to log10 transformation
   # --> display it manually
   geom_segment(x = my_breaks[n_breaks], xend = my_breaks[n_breaks + 1],
              y = 0.01, yend = 0.01, color = mag_colors[n_breaks], size = 0.3) +
+  geom_text(data = add_counts, mapping = aes(x = x, y = y, label = label), size = 6 / .pt,
+            color = "black") +
   scale_fill_manual(values = setNames(mag_colors, 1:n_breaks)) +
   scale_y_log10(name = NULL) +
   scale_x_continuous(name = NULL, breaks = my_breaks + eps) +
@@ -160,7 +168,7 @@ finish <- grid.arrange(combine,
 file_path <- file.path(fpath, "Fig1_Earthquakes.pdf")
 ggsave(file_path, width = 140, height = 100, unit = "mm", plot = finish)
 
-rm(eq_map, eq_hist, combine, finish, annotate_symbols)
+rm(eq_map, eq_hist, combine, finish, annotate_symbols, df_hist)
 
 ################################################################################
 # Figure 2: Distribution of forecasts over time and space
@@ -204,14 +212,10 @@ pred_by_cell_long <- pred_one_day %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model")
 
 # should we censor data?
-# pred_by_cell_long <- mutate(pred_by_cell_long, value = pmax(value, 10^-7))
+pred_by_cell_long <- mutate(pred_by_cell_long, value = pmax(value, 10^-7))
 
-events_by_cell <- events %>%
-  filter(TS >= times[i_time], TS < times[i_time] + days(7)) %>%
-  group_by(N) %>%
-  summarise(Count = n()) %>%
-  left_join(cells, by = "N") %>%
-  select(LON, LAT, Count)
+events_filtered <- events %>%
+  filter(TS >= times[i_time], TS < times[i_time] + days(7))
 
 # to center align plots in facet_wrap: make plot for each row and combine them
 # with grid.arrange
@@ -224,31 +228,30 @@ create_row <- function(row, only_legend = F) {
     geom_tile(data = pred_dt, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
     geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
             size = 0.2, fill = NA) +
-    geom_tile(data = events_by_cell, aes(x = LON, y = LAT, color = "Obs. earthquakes"),
-              fill = NA) +
+    geom_sf(data = st_as_sf(events_filtered, coords = c("LON", "LAT"), crs = 4326),
+            aes(size = MAG, color = "Obs. earthquakes"), alpha = 0.6, shape = 1,
+                stroke = 0.3) +
     coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
     scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
     scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
+    scale_size(range = new_range, trans = size_trans) +
     scale_fill_viridis_c(name = "Pred.\nmean",
                         breaks = 10^(c(-9, -7, -5, -3)), limits = cb_limits,
                         labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
                         trans = "log10", option = "magma", direction = -1,
                         guide = guide_colorbar(order = 1)) +
     scale_color_manual(name = "Obs.\nearth-\nquakes", values = c("Obs. earthquakes" = "black"),
-                       labels = "",
-                       guide = guide_legend(keywidth = unit(5, "points"),
-                                            keyheight = unit(5, "points"),
-                                            order = 2)) +
+                       labels = "", guide = guide_legend(order = 2, override.aes = list(size = 4))) +
     my_theme +
     theme(legend.position = "right", plot.margin = margin(5.5, 5.5, 5.5, 11.5))
   if (only_legend) {
-    return(get_legend(pl))        # only show legend
+    return(get_legend(pl + guides(size = "none")))        # only show legend
   } else {
-    return(pl + guides(fill = "none", color = "none"))    # don't show legend
+    return(pl + guides(fill = "none", color = "none", size = "none"))    # don't show legend
   }
 }
 
-spat_subtitle <- paste0("For the 7-day Period Following ", as.character(times[i_time]),
+spat_subtitle <- paste0("For the 7-day Period Succeeding ", as.character(times[i_time]),
                         ", marked *")
 spat_plot <- grid.arrange(create_row(c("FCM", "LG", "LM")), create_row(c("SMA", "LRWA")),
                           nrow = 2)
@@ -718,7 +721,7 @@ colnames(patton_df) <- model_names
 
 patton_df <- data.frame(patton_df) %>% mutate(b = bs)
 
-patton_df <- read.csv("./../tmp_results/patton_df.csv")
+patton_df <- read.csv("./../tmp_results/patton_df_100.csv")
 
 max_vals <- apply(patton_df[, model_names], 1, max)
 min_vals <- apply(patton_df[, model_names], 1, min)
@@ -744,6 +747,32 @@ combine <- grid.arrange(patton_plot, nrow = 1,
                                        gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig10_PattonPlot_4.pdf")
+ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
+
+# patton difference plot
+patton_plot <- patton_df %>%
+  filter(b >= 0.9) %>%
+  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  pivot_longer(cols = all_of(ana_models), names_to = "Model") %>%
+  ggplot() +
+  geom_line(aes(x = b, y = value, color = Model), size = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 0.5) +
+  geom_vline(xintercept = c(1, 2), linetype = "dashed", color = "darkgray", size = 0.5) +
+  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors,
+                     breaks = ana_models,
+                     guide = guide_legend(override.aes = list(size = 0.5))) +
+  xlab("b") +
+  ylab("Difference") +
+  annotate("text", x = c(1.3, 2.3), y = c(-0.4, -0.4), label = c("b=1", "b=2"),
+           size = 3, color = "darkgray") +
+  my_theme +
+  theme(legend.position = "bottom")
+
+combine <- grid.arrange(patton_plot, nrow = 1,
+                        top = textGrob("Score Difference of different Patton Scores",
+                                       gp = gpar(fontsize = title_size)))
+
+file_path <- file.path(fpath, "Fig10_PattonPlot_4_diff.pdf")
 ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
 
 
