@@ -267,7 +267,7 @@ combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.37, 0.63),
 file_path <- file.path(fpath, "Fig2_Forecasts.pdf")
 ggsave(file_path, width = 145, height = 190, unit = "mm", plot = combine)
 
-rm(pred_by_day, pred_by_cell_long, events_by_cell, pred_one_day, temp_plot,
+rm(pred_by_day, pred_by_cell_long, events_filtered, pred_one_day, temp_plot,
    spat_plot, combine, create_row)
 
 ################################################################################
@@ -373,11 +373,12 @@ my_trans <- trans_new(
   "log", function(x) sign(x) * log(abs(x) * d  + 1),
   function(y) sign(y) / d * (exp(abs(y)) - 1)
 )
-my_breaks <- c(-10^(c(2, 0, -2)), 0, 10^(c(-2, 0)))
-minor_breaks <- c(-10^(2:-3), 0, 10^(-3:1))
-my_labels <- c("-100", "-1", "-0.01", "0", "0.01", "1")
+my_breaks <- c(-10^(c(2, 0, -2)), 0, 10^(c(-2, 0, 2)))
+minor_breaks <- c(-10^(2:-3), 0, 10^(-3:2))
+my_labels <- c("-100", "-1", "-0.01", "0", "0.01", "1", "100")
+my_limits <- c(-100, 100)
 
-# 2 - Poisson score ------------------------------------------------------------
+# 2 - Quadratic score ----------------------------------------------------------
 scf <- s_quad
 add_name <- "_quad"
 add_title <- "Quadratic"
@@ -388,8 +389,9 @@ my_trans <- trans_new(
   function(y) sign(y) / d * (exp(abs(y)) - 1)
 )
 my_breaks <- c(-10^(c(0, -2, -4)), 0, 10^(c(-4, -2, 0)))
-minor_breaks <- c(-10^(2:-7), 0, 10^(-7:1))
+minor_breaks <- c(-10^(1:-7), 0, 10^(-7:1))
 my_labels <- my_breaks
+my_limits <- c(-10, 10)
 
 # ------------------------------------------------------------------------------
 
@@ -408,7 +410,7 @@ score_plot <- ggplot() +
              size = point_size, alpha = point_alpha) +
   # add black borders to triangle used for earthquake days
   geom_point(data = filter(scores_long, earthquake), aes(x = X, y = value),
-             color = "black", shape = 2, size = point_size, stroke = 0.5,
+             color = "black", shape = 2, size = point_size * 1.2, stroke = 0.1,
              alpha = point_alpha) +
   # plot triangles
   geom_point(data = filter(scores_long, earthquake),
@@ -449,7 +451,7 @@ temp_plot <- ggplot() +
              size = point_size, alpha = point_alpha) +
   # add black borders to triangle used for earthquake days
   geom_point(data = filter(diff_scores, earthquake), aes(x = X, y = value),
-             color = "black", shape = 2, size = point_size, stroke = 0.5,
+             color = "black", shape = 2, size = point_size * 1.2, stroke = 0.1,
              alpha = point_alpha) +
   # plot triangles
   geom_point(data = filter(diff_scores, earthquake),
@@ -459,7 +461,7 @@ temp_plot <- ggplot() +
   scale_x_continuous(breaks = scores$X[new_year], labels = year(times[new_year]),
                      limits = c(0, nrow(scores))) +
   scale_y_continuous(trans = my_trans, breaks = my_breaks, labels = my_labels,
-                     minor_breaks = minor_breaks) +
+                     minor_breaks = minor_breaks, limits = my_limits) +
   scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors, breaks = ana_models,
                      guide = guide_legend(order = 1, direction = "horizontal",
                                           override.aes = list(alpha = 1))) +
@@ -802,8 +804,8 @@ colnames(murphy_df) <- model_names
 murphy_df <- murphy_df / n_days
 
 # or read it in
-murphy_df <- read.csv("./figures4/murphy_df.csv") %>%
-  rename(FCM = FMC)
+murphy_df <- read.csv("./figures7/murphy_df.csv") %>%
+  select(all_of(model_names))
 
 murphy_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
@@ -829,9 +831,10 @@ file_path <- file.path(fpath, "Fig7_MurphyDiag.pdf")
 ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
 
 # now look at Murphy diagram of miscalibration and discrimination component
-MCB_diag <- DSC_diag <- matrix(0, ncol = n_mods, nrow = n_theta)
+MCB_diag <- DSC_diag <- matrix(0.0, ncol = n_mods, nrow = n_theta)
 for (i in 1:n_mods) {
   print(i)
+  # cell_decomposition determines score components for each spatial cell separately
   decomp <- cell_decomposition(models[[i]], obs, theta = grd)
   # decomp <- day_decomposition(models[[i]], obs, theta = grd) # in helpful_routines.R
   MCB_diag[ ,i] <- rowSums(decomp$MCB)
@@ -880,8 +883,8 @@ df_collect <- df_collect %>%
   mutate(Type = ifelse(Type == "MCB", "Miscalibration", "Discrimination"))
 
 # or read precomputed values in
-df_collect <- read.csv("./figures4/murphy-MCB-DSC.csv") %>%
-  mutate(Model = ifelse(Model == "FMC", "FCM", Model))
+df_collect <- read.csv("./figures7/murphy-MCB-DSC.csv") %>%
+  filter(Model %in% model_names)
 
 murphy_score_cmps <- ggplot(df_collect) +
   facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
@@ -1007,11 +1010,10 @@ for (i in 1:length(models)) {
 }
 
 # or load already recalibrated values
-recal_models <- read.csv("./../tmp_results/recal_models_all-Til-100-5.csv",
-                         row.names = 1) %>%
-  mutate(Model = ifelse(Model == "FMC", "FCM", Model))
-collect_stats <- read.csv("./../tmp_results/collect_stats_5.csv", row.names = 1) %>%
-  mutate(Model = ifelse(Model == "FMC", "FCM", Model))
+recal_models <- read.csv("./figures7/recal-all_Til-100.csv", row.names = 1) %>%
+  filter(Model %in% model_names)
+collect_stats <- read.csv("./figures7/collect_stats.csv", row.names = 1) %>%
+  filter(Model %in% model_names)
 
 col_ecdfs <- list()
 for (i in 1:length(models)) {
@@ -1040,7 +1042,7 @@ mean_ecdf <- do.call(rbind, col_ecdfs) %>%
   arrange(x) %>%
   setnafill(type = "locf") %>%
   slice(floor(seq(1, nrow(.), length.out = 10^5))) %>%   # sample on grid for plotting
-  transmute(x = x, y = rowMeans(cbind(LM, FCM, LG, SMA)))
+  transmute(x = x, y = rowMeans(select(., all_of(model_names))))
 
 my_trans <- function(x) {
   # first known values, then values we want to evaluate --> fill with last observation
@@ -1127,7 +1129,7 @@ for (i in 1:length(models)) {
 }
 
 # specify rows separately to center align bottom row
-rows <- list(c("FCM", "LG", "LM"), c("SMA", "LRWA"))
+rows <- list(model_names[1:3], model_names[4:5])
 
 create_row <- function(row) {
   dt_recal <- filter(recal_models, Model %in% row)

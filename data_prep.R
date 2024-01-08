@@ -17,7 +17,8 @@ model_files <- c("forecast_ETAS_LM_FP32.dat.xz",
                  "forecast_ETES_FCM_FP32.dat.xz",
                  "forecast_STEP_LG_FP32.dat.xz",
                  "forecast-ensemble_SMA_FP32.dat.xz",
-                 "forecast-ensemble_LR-WA_M3+s2-1d_FP32.dat.xz")
+                 "forecast-ensemble_LR-WA_M3+s2-1d_FP32.dat.xz",
+                 "forecast-ensemble_LR-WA_M3+s1_seq-basedM3+trigM4.5+_wbyN_noIrreg_1d_FP32.dat.xz")
 # Time stamps corresponding to model outputs
 # (rows of the model output data)
 time_stamps_file <- "meta_rows_dates.csv"
@@ -34,11 +35,15 @@ library(Matrix)
 source(file.path(rpath, "functions_prep.R"))
 
 # Set model names and their colors
-model_names <- c("LM", "FCM", "LG", "SMA", "LRWA")
+model_names <- c("LM", "FCM", "LG", "SMA", "LRWA", "LRWAsb")
 model_colors <- c("black", "darkgreen", "blue", "red")
 # Define last day where model evaluation is possible (needed
 # because we treat 7-day periods)
 last_day <- list(DD = 20, MM = 5, YY = 2020)
+
+select_models <- c(1, 2, 3, 5, 6)
+model_files <- model_files[select_models]
+model_names <- model_names[select_models]
 
 
 ###############
