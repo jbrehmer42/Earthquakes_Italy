@@ -883,20 +883,35 @@ df_collect <- df_collect %>%
   mutate(Type = ifelse(Type == "MCB", "Miscalibration", "Discrimination"))
 
 # or read precomputed values in
-df_collect <- read.csv("./figures7/murphy-MCB-DSC.csv") %>%
+df_collect <- read.csv("./figures7/murphy-MCB-DSC.csv", row.names = 1) %>%
   filter(Model %in% model_names)
+murphy_df <- read.csv("./figures7/murphy_df.csv") %>%
+  select(all_of(model_names)) %>%
+  mutate(log_theta = log_grid) %>%
+  pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
+  mutate(Type = "Score")
 
-murphy_score_cmps <- ggplot(df_collect) +
-  facet_wrap(~factor(Type, ordered = T, levels = c("Miscalibration", "Discrimination")),
-             nrow = 2, scales = "free_y") +
-  geom_line(aes(x = log_theta, y = value, color = Model), size = 0.3) +
+mcb_fac <- 5
+df_plot <- rbind(murphy_df, df_collect) %>%
+  mutate(value = ifelse(Type == "Discrimination", value * (-1), value),
+         value = ifelse(Type == "Miscalibration", value * mcb_fac, value))
+
+murphy_score_cmps <- ggplot(df_plot) +
+  geom_hline(yintercept = 0.0, color = "black", size = 0.3) +
+  geom_line(aes(x = log_theta, y = value, color = Model,
+                group = paste(Model, Type), linetype = Type),
+            size = 0.3) +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(override.aes = list(size = 0.5))) +
   scale_x_continuous(breaks = -4:1 * 5) +
+  scale_y_continuous(sec.axis = sec_axis(~./mcb_fac, name=NULL)) +
+  scale_linetype_manual(name = NULL,
+                        values = c("Score" = "solid", "Miscalibration" = "dotdash",
+                                   "Discrimination" = "dashed")) +
   xlab(expression(paste("Threshold log", (theta)))) +
   ylab(NULL) +
   my_theme +
-  theme(legend.position = c(0.99, 0.42), legend.justification = c(1, 1))
+  theme(legend.position = "bottom", legend.key.size = unit(4, "mm"))
 
 combine <- grid.arrange(murphy_score_cmps, nrow = 1,
                         top = textGrob("Score Components by Elementary Score",
