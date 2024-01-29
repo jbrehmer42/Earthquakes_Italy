@@ -1,5 +1,9 @@
 library(ggplot2)
 library(dplyr)
+library(gridExtra)
+library(grid)
+
+set.seed(111)
 
 s_pois <- function(X, Y) {
   zero_fcst <- X == 0
@@ -10,6 +14,25 @@ s_pois <- function(X, Y) {
   return(score)
 }
 
+s_quad <- function(X, Y) {
+  return((X - Y)^2)
+}
+
+fpath <- "./figures8"
+title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
+
+my_theme <- list(
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.05),
+        panel.grid.minor = element_line(size = 0.05),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8),
+        legend.key.size = unit(5, "mm"),
+        plot.title = element_text(size = title_size),
+        strip.background = element_blank())
+)
+
+################################################################################
 
 mix_forecasts <- function(fcst1, fcst2) {
   pick <- rbinom(length(fcst1), 1, 0.5)
@@ -20,8 +43,7 @@ mix_forecasts <- function(fcst1, fcst2) {
   ))
 }
 
-
-geo_test <- function(fcst1, fcst2, y) {
+csep_test <- function(fcst1, fcst2, y, scf) {
   N <- sum(y)
   diff_logs <- log(fcst1) - log(fcst2)
   I_N_ij <- sum(y * diff_logs) / N - (sum(fcst1) - sum(fcst2)) / N
@@ -32,9 +54,8 @@ geo_test <- function(fcst1, fcst2, y) {
   return(data.frame(zval = test_stat, pval = pval, sd = sqrt(test_var), mean_diff = I_N_ij))
 }
 
-
-dm_test <- function(fcst1, fcst2, y) {
-  diff_scores <- rowSums(s_pois(fcst1, y) - s_pois(fcst2, y))
+dm_test <- function(fcst1, fcst2, y, scf) {
+  diff_scores <- rowSums(scf(fcst1, y) - scf(fcst2, y))
   mean_diff_score <- mean(diff_scores)
 
   auto_covs <- acf(diff_scores, lag.max = 7, type = "covariance", plot = F)$acf
@@ -48,8 +69,7 @@ dm_test <- function(fcst1, fcst2, y) {
 }
 
 
-sim_tests <- function(B = 100) {
-  tests <- list("geo_test" = geo_test, "dm_test" = dm_test)
+sim_tests <- function(test_fcn, scf_fcn, B = 100) {
   collect_results <- data.frame()
 
   y <- obs
@@ -67,31 +87,35 @@ sim_tests <- function(B = 100) {
       fcst_names
     )
 
-    for (stat_test in names(tests)) {
-      for (fcst1 in 1:(length(fcst_names) - 1)) {
-        for (fcst2 in (fcst1 + 1):length(fcst_names)) {
+    for (fcst1 in 1:(length(fcst_names) - 1)) {
+      for (fcst2 in (fcst1 + 1):length(fcst_names)) {
 
-          test_vals <- tests[[stat_test]](fcst_data[[fcst_names[fcst1]]],
-                                          fcst_data[[fcst_names[fcst2]]],
-                                          y)
+        test_vals <- test_fcn(fcst_data[[fcst_names[fcst1]]],
+                              fcst_data[[fcst_names[fcst2]]],
+                              y,
+                              scf_fcn)
 
-          collect_results <- rbind(collect_results,
-                                   cbind(test_vals, I = i, Type = stat_test,
-                                         cmp = paste(fcst_names[fcst1], "vs.", fcst_names[fcst2])))
-        }
+        collect_results <- rbind(
+          collect_results,
+          cbind(test_vals, I = i, cmp = paste(fcst_names[fcst1], "vs.", fcst_names[fcst2]))
+        )
       }
     }
   }
   return(collect_results)
 }
 
+# Plots ------------------------------------------------------------------------
 
-analyze_autocorrelation_fcn <- function(B = 10) {
+analyze_autocorrelation_fcn <- function(B = 10, s_func = s_pois) {
   acf_data <- data.frame()
 
   for (i in 1:B) {
-    fcst_data <- get_forecasts()
-    score_diffs <- s_pois(fcst_data$a, fcst_data$y) - s_pois(fcst_data$b, fcst_data$y)
+    fcst_data <- mix_forecasts(as.vector(models[[which(model_names == "LG")]]),
+                               as.vector(models[[which(model_names == "FCM")]]))
+    fcst_a <- matrix(fcst_data$a, nrow = nrow(obs))
+    fcst_b <- matrix(fcst_data$b, nrow = nrow(obs))
+    score_diffs <- s_func(fcst_a, obs) - s_func(fcst_b, obs)
 
     acf_obj <- acf(rowSums(score_diffs), type = "covariance", plot = F)
 
@@ -99,41 +123,44 @@ analyze_autocorrelation_fcn <- function(B = 10) {
       acf_data, data.frame(lag = acf_obj$lag, value = acf_obj$acf, I = i)
     )
   }
-  return(acf_data)
-}
 
-B <- 1
-acf_data <- analyze_autocorrelation_fcn(B = B)
-ggplot(acf_data) +
-    facet_wrap()
+  ggplot(acf_data) +
+    facet_wrap(~I) +
     geom_hline(aes(yintercept = 0)) +
     geom_segment(aes(x = lag, y = value, xend = lag, yend = 0)) +
     theme_bw()
-
+}
 
 plot_results <- function(df) {
-  df %>%
-    mutate(Type = ifelse(Type == "geo_test", "CSEP T-test",
-                         "Diebold-Mariano test"),
-           Type = factor(Type, ordered = T,
-                         levels = c("CSEP T-test", "Diebold-Mariano test")),
-           cmp = factor(cmp, ordered = T,
-                        levels = c("LM vs. MixA", "LM vs. MixB", "MixA vs. MixB"))) %>%
-    ggplot() +
+  bins <- seq(0, 1, length.out = 20 + 1)
+
+  ggplot(df) +
     facet_grid(Type~cmp) +
-    geom_histogram(aes(x = pval, y = ..density..)) +
+    geom_histogram(aes(x = pval, y = ..density..), breaks = bins) +
+    geom_vline(xintercept = c(0.05, 0.95), color = "#f8766d", linetype = "dashed",
+               size = 0.3) +
+    scale_x_continuous(breaks = 0:4 / 4, labels = c("0", "0.25", "0.5", "0.75", "1")) +
     xlab("p value") +
-    ylab("count") +
-    ggtitle("Simulation Study") +
-    theme_bw() +
+    ylab("") +
+    ggtitle(NULL) +
+    my_theme +
     theme(strip.background = element_blank())
 }
 
 cmp_run_sim <- compiler::cmpfun(sim_tests)
 
-collect_results <- cmp_run_sim(B = 100)
+res_dm_pois <- cmp_run_sim(dm_test, s_pois, B = 400)
+res_dm_quad <- cmp_run_sim(dm_test, s_quad, B = 400)
 
-pl <- plot_results(collect_results)
-pl
+plot_data <- rbind(
+  cbind(res_dm_pois, Type = "Poisson"), cbind(res_dm_quad, Type = "Quadratic")
+)
+my_plot <- plot_results(plot_data)
+finish <- grid.arrange(my_plot,
+                       top = textGrob("Diebold-Mariano Tests",
+                                      gp = gpar(fontsize = title_size)))
 
-ggsave("./../test/sim_study3/ss_tests.pdf", width = 150, height = 120, unit = "mm")
+file_path <- file.path(fpath, "Fig4_DieboldMariano.pdf")
+ggsave(file_path, width = 140, height = 100, unit = "mm", plot = finish)
+
+write.csv(plot_data, file.path(fpath, "simstudy_tests2_400.csv"))
