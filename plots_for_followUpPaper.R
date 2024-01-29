@@ -8,12 +8,11 @@ library(grid)             # for grobText : change text size in grid.arrange
 library(cowplot)          # for get_legend : extract legend from plot
 library(monotone)         # for monotone : fast isotonic mean regression
 library(sf)               # for st_as_sf : convert data.frame to geographic sf format
-library(rnaturalearth)    # for ne_countries : to load country data
+library(rnaturalearth)    # for ne_countries : load country data
 library(scales)           # for trans_new : custom data transformation
                           # for seq_gradient_pal : custom color gradient
 
 source("data_prep.R")
-source("functions_eval.R")    # for elementary score
 
 # use standard colors of ggplot for discrete variables
 model_colors <- c("FCM" = "#F8766D", "LG" = "#00BF7D",  "LM" = "#A3A500",
@@ -25,7 +24,7 @@ ana_models <- model_names[model_names != cmp_model]
 
 new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
-fpath <- "./figures7"
+fpath <- "./figures8"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -65,6 +64,25 @@ s_quad <- function(X, Y) {
 
 s_quad_da <- function(X, Y) {
   return(sum((X - Y)^2) / n_days)   # daily averages
+}
+
+s_theta_da <- function(x, y, theta) {
+  # Elementary scoring function for the mean following Ehm et al. (2016)
+  if (sum(y) == 0) {
+    s <- theta * sum(x > theta)
+  } else {
+    s <- sum(pmax(y-theta, 0) - pmax(x-theta, 0) - (y - x) * (theta < x))
+  }
+  return(s / n_days) # daily averages
+}
+
+i_gpe <- function(X1, X2, Y) {
+  n_t <- rowSums(Y)
+  X1_t <- rowSums(X1)
+  X2_t <- rowSums(X2)
+  return(
+    rowSums(Y * (log(X1) - log(X2))) / n_t - (X1_t - X2_t) / n_t
+  )
 }
 
 ################################################################################
@@ -194,8 +212,8 @@ temp_plot <- pred_by_day %>%
                      guide = guide_legend(override.aes = list(size = 0.5), order = 1)) +
   scale_shape_manual(name = NULL, values = c("Obs. earthquakes" = 1)) +
   xlab(NULL) +
-  ylab("Pred. mean") +
-  labs(subtitle = "For all of Italy") +
+  ylab("Expected number") +
+  labs(subtitle = "For the entire CSEP Italy region") +
   annotate(geom = "text", label = "*", x = i_time, y = 0.14, size = 5,
            color = "black") +
   my_theme +
@@ -235,7 +253,7 @@ create_row <- function(row, only_legend = F) {
     scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
     scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
     scale_size(range = new_range, trans = size_trans) +
-    scale_fill_viridis_c(name = "Pred.\nmean",
+    scale_fill_viridis_c(name = "Expected\nnumber",
                         breaks = 10^(c(-9, -7, -5, -3)), limits = cb_limits,
                         labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
                         trans = "log10", option = "magma", direction = -1,
@@ -250,9 +268,9 @@ create_row <- function(row, only_legend = F) {
     return(pl + guides(fill = "none", color = "none", size = "none"))    # don't show legend
   }
 }
-
-spat_subtitle <- paste0("For the 7-day Period Succeeding ", as.character(times[i_time]),
-                        ", marked *")
+print(paste("Check:", times[i_time], "= 03.04.2009?"))
+# use short dash ("en dash") = \u2013
+spat_subtitle <- paste("For the 7\u00adday Period Starting April 3, 2009, marked *")
 spat_plot <- grid.arrange(create_row(c("FCM", "LG", "LM")), create_row(c("SMA", "LRWA")),
                           nrow = 2)
 spat_plot <- grid.arrange(spat_plot, create_row(model_names, only_legend = T), nrow = 1,
@@ -261,7 +279,7 @@ spat_plot <- grid.arrange(spat_plot, create_row(model_names, only_legend = T), n
                                          hjust = 0, gp = gpar(fontsize = 11)))
 
 combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.37, 0.63),
-                        top = textGrob("Predicted Mean Number of Events",
+                        top = textGrob("Expected Number of Events",
                                        gp = gpar(fontsize = title_size)))
 
 file_path <- file.path(fpath, "Fig2_Forecasts.pdf")
@@ -274,54 +292,106 @@ rm(pred_by_day, pred_by_cell_long, events_filtered, pred_one_day, temp_plot,
 # Tables: Calculate Scores
 ################################################################################
 
-print_tex_table <- function(scores, colnames, digits, make_bold, file_path) {
-  begin <- paste0("\\begin{tabular}{l ", paste(rep("c", ncol(scores)), collapse = ""), "}")
-  head <- paste(paste0(c("Model", colnames), collapse = " & "), "\\\\")
+print_tex_table <- function(
+  table_matrix,                               # matrix containing table entries
+  col_names = list(),                         # column names (mulitple lines possible)
+  digits = rep(2, ncol(table_matrix)),        # number of digits in each column
+  make_strong = rep("-", ncol(table_matrix)), # rows to emphasize in each columns
+  strong_symbol = "\\bf",                     # which symbol to use for emphasis
+  sep_after = character(0),             # add separation after specfic rows
+  col_align = "c",                            # alginment of text within each column
+  file_path = "table.tex"                     # location to save file
+) {
+  begin <- paste0("\\begin{tabular}{l ",
+                  paste(rep(col_align, ncol(table_matrix)), collapse = ""), "}")
+  head <- character(0)
+  for (add_to_head in col_names) {
+    head <- paste(head, paste0(add_to_head, collapse = " & "), "\\\\")
+  }
   # Write teX code to file
   write(begin, file_path)
-  write("\\hline \\hline", file_path, append = T)
+  write("\\toprule", file_path, append = T)
   write(head, file_path, append = T)
-  write("\\hline", file_path, append = T)
+  write("\\midrule", file_path, append = T)
   # Write score values
-  for (m in rownames(scores)) {
+  for (m in rownames(table_matrix)) {
     row_m <- paste(m)
-    for (c in 1:ncol(scores)) {
+    for (c in 1:ncol(table_matrix)) {
       fmt <- paste0("%.", digits[c], "f")
-      add_bold <- ifelse(make_bold[c] == m, "\\bf", "")
-      next_entry <- sprintf(fmt, scores[m, c])
-      row_m <- paste(row_m, " & ", add_bold, next_entry)
+      add_bold <- ifelse(make_strong[c] == m, paste0(strong_symbol, "{"), "")
+      end_bold <- ifelse(make_strong[c] == m, "}", "")
+      next_entry <- sprintf(fmt, table_matrix[m, c])
+      row_m <- paste(row_m, " & ", add_bold, next_entry, end_bold)
     }
     row_m <- paste0(row_m, " \\\\")
     write(row_m, file_path, append = T)
+    if (m %in% sep_after) {
+      write("\\midrule", file_path, append = T)
+    }
   }
-  write("\\hline", file_path, append = T)
+  write("\\bottomrule", file_path, append = T)
   write("\\end{tabular}", file_path, append = T)
 }
 
-# Table 1: Overall quadratic and Poisson score and its number and spatial component
-t1 <- matrix(NA, nrow = length(models), ncol = 4)
-rownames(t1) <- model_names
-colnames(t1) <- c("quad", "pois", "number", "spatial")
+# Table 1: Overall quadratic and Poisson score, and specific elementary scores -
+t_dom <- matrix(NA, nrow = length(models), ncol = 5)
+rownames(t_dom) <- model_names
+colnames(t_dom) <- c("Poisson", "Quadratic", "Elem1", "Elem2", "Elem3")
+
+for (i in 1:length(models)) {
+  t_dom[i, "Quadratic"] <- s_quad_da(models[[i]], obs)
+  t_dom[i, "Poisson"] <- s_pois_da(models[[i]], obs)
+  t_dom[i, "Elem1"] <- s_theta_da(models[[i]], obs, exp(-9.5))
+  t_dom[i, "Elem2"] <- s_theta_da(models[[i]], obs, exp(-11))
+  t_dom[i, "Elem3"] <- s_theta_da(models[[i]], obs, exp(-14))
+}
+t_dom
+write.csv(t_dom, file.path(fpath, "Tab1_dom.csv"))
+
+col_names <- list(
+  c("Score", "Poisson", "Quadratic", "Elementary", "Elementary", "Elementary"),
+  c("", "", "", "$\\theta = 10^{-9.5}$", "$\\theta = 10^{-11}$", "$\\theta = 10^{-14}$")
+)
+print_tex_table(
+  t_dom,
+  col_names = col_names,
+  digits = c(2, 4, 4, 4, 4),
+  make_strong = rownames(t_dom)[apply(t_dom, 2, which.min)],
+  strong_symbol = "\\green",
+  sep_after = "LG",
+  col_align = "r",
+  file_path = file.path(fpath, "Tab1_dom.tex")
+)
+
+# Table 3: Overall quadratic and Poisson score and its number and spatial component
+t_numspat <- matrix(NA, nrow = length(models), ncol = 4)
+rownames(t_numspat) <- model_names
+colnames(t_numspat) <- c("quad", "pois", "number", "spatial")
 
 for (i in 1:length(models)) {
   x_t <- rowSums(models[[i]])
-  t1[i, "quad"] <- s_quad_da(models[[i]], obs)
-  t1[i, "pois"] <- s_pois_da(models[[i]], obs)
-  t1[i, "number"] <- mean(s_pois(x_t, rowSums(obs)))
-  t1[i, "spatial"] <- mean(rowSums(s_pois(models[[i]] / x_t, obs))) - 1
+  t_numspat[i, "quad"] <- s_quad_da(models[[i]], obs)
+  t_numspat[i, "pois"] <- s_pois_da(models[[i]], obs)
+  t_numspat[i, "number"] <- mean(s_pois(x_t, rowSums(obs)))
+  t_numspat[i, "spatial"] <- mean(rowSums(s_pois(models[[i]] / x_t, obs))) - 1
 }
-t1
-write.csv(t1, file.path(fpath, "Table1.csv"))
+t_numspat
+write.csv(t_numspat, file.path(fpath, "Tab4_number-spatial.csv"))
 
-file_path <- file.path(fpath, "Table1.tex")
-make_bold <- rownames(t1)[apply(t1, 2, which.min)]
-print_tex_table(t1, colnames(t1), c(4, 2, 3, 3), make_bold, file_path)
+print_tex_table(
+  t_numspat,
+  col_names = list(c("", "Quadratic", "Poisson", "Number", "Spatial")),
+  digits = c(4, 2, 3, 3),
+  make_strong = rownames(t_numspat)[apply(t_numspat, 2, which.min)],
+  sep_after = "LG",
+  file_path = file.path(fpath, "Tab4_number-spatial.tex")
+)
 
-# Table 2: Overall quadratic and Poisson score and its MSB, DSC, and UNC component
-t2 <- matrix(NA, nrow = length(models), ncol = 8)
-rownames(t2) <- model_names
-colnames(t2) <- c("quad", "q-MCB", "q-DSC", "q-UNC", "pois", "p-MCB", "p-DSC",
-                  "p-UNC")
+# Table 4: Overall quadratic and Poisson score and its MSB, DSC, and UNC component
+t_sc_cmps <- matrix(NA, nrow = length(models), ncol = 8)
+rownames(t_sc_cmps) <- model_names
+colnames(t_sc_cmps) <- c("quad", "q-MCB", "q-DSC", "q-UNC", "pois", "p-MCB", "p-DSC",
+                         "p-UNC")
 
 # we could get different scores than Table 1 due to sorting and summing up in a
 # different order, but does not seem to be the case here
@@ -340,24 +410,108 @@ for (i in 1:length(models)) {
     s <- scf(x, y)
     s_rc <- scf(x_rc, y)
     s_mg <- scf(mean(y), y)
-    t2[i, j] <- s
-    t2[i, j + 1] <- s - s_rc
-    t2[i, j + 2] <- s_mg - s_rc
-    t2[i, j + 3] <- s_mg
+    t_sc_cmps[i, j] <- s
+    t_sc_cmps[i, j + 1] <- s - s_rc
+    t_sc_cmps[i, j + 2] <- s_mg - s_rc
+    t_sc_cmps[i, j + 3] <- s_mg
     j <- j + 4
   }
 }
-t2
-write.csv(t2, file.path(fpath, "Table2.csv"))
+t_sc_cmps
+write.csv(t_sc_cmps, file.path(fpath, "Tab5_score-components.csv"))
 
-file_path <- file.path(fpath, "Table2.tex")
-c_names <- c("quad", "MCB", "DSC", "UNC", "pois", "MCB", "DSC", "UNC")
-make_bold <- rownames(t2)[apply(t2 * rep(c(1, 1, -1, 1, 1, 1, -1, 1), each = nrow(t2)),
-                                2, which.min)]
+make_bold <- rownames(t_sc_cmps)[apply(t_sc_cmps * rep(c(1, 1, -1, 1, 1, 1, -1, 1),
+                                                       each = nrow(t_sc_cmps)),
+                                       2, which.min)]
 make_bold[c(4, 8)] <- "XXXXX" # in column 4 and 8 (UNC), make no Model bold
-print_tex_table(t2, c_names, c(rep(4, 4), rep(2, 4)), make_bold, file_path)
+print_tex_table(
+  t_sc_cmps,
+  col_names = list(c("", "quad", "MCB", "DSC", "UNC", "pois", "MCB", "DSC", "UNC")),
+  digits = c(rep(4, 4), rep(2, 4)),
+  make_strong = make_bold,
+  sep_after = "LG",
+  file_path = file.path(fpath, "Tab5_score-components.tex"))
 
-rm(t1, t2, c_names, make_bold, x, y, ord, x_rc, s, s_rc, s_mg, j)
+rm(t_dom, t_numspat, t_sc_cmps, col_names, make_bold, x, y, ord, x_rc, s, s_rc, s_mg, j)
+
+################################################################################
+# Statistical tests
+################################################################################
+
+csep_test <- function(fcst1, fcst2, y, scf) {
+  N <- sum(y)
+  diff_logs <- log(fcst1) - log(fcst2)
+  I_N_ij <- sum(y * diff_logs) / N - (sum(fcst1) - sum(fcst2)) / N
+  test_var <- 1 / (N - 1) * sum((diff_logs - mean(diff_logs))^2)
+
+  test_stat <- I_N_ij / sqrt(test_var) * sqrt(N)
+  pval <- 1 - pt(test_stat, N - 1)
+  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(test_var), mean_diff = I_N_ij))
+}
+
+dm_test <- function(fcst1, fcst2, y, scf) {
+  diff_scores <- rowSums(scf(fcst1, y) - scf(fcst2, y))
+  mean_diff_score <- mean(diff_scores)
+
+  auto_covs <- acf(diff_scores, lag.max = 7, type = "covariance", plot = F)$acf
+  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
+
+  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
+  pval <- 1 - pnorm(test_stat)
+
+  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
+                    mean_diff = mean_diff_score))
+}
+
+# 1. DM with Poisson -----------------------------------------------------------
+test_func <- dm_test
+scf_func <- s_pois
+scale <- 1.0
+name <- "dm_pois"
+n_digits <- 2
+model_order <- c(5, 1, 4, 2, 3)
+# 2. DM with Quadratic ---------------------------------------------------------
+test_func <- dm_test
+scf_func <- s_quad
+scale <- 1.0
+name <- "dm_quad"
+n_digits <- 3
+model_order <- c(1, 5, 4, 2, 3)
+# 3. CSEP T-test ---------------------------------------------------------------
+test_func <- csep_test
+scf_func <- s_pois
+scale <- n_days / sum(obs)
+name <- "csep"
+n_digits <- 3
+# ------------------------------------------------------------------------------
+
+scores <- sapply(models, function(x) sum(scf_func(x, obs)) / n_days)
+val_matrix <- matrix(0.0, nrow = length(models), ncol = length(models),
+                     dimnames = list(model_names[model_order], model_names[model_order]))
+
+for (i in 1:(length(model_order) - 1)) {
+  # diagonal corresponds to Poisson score
+  val_matrix[i, i] <- scale * scores[model_order[i]]
+
+  for (j in (i + 1):length(model_order)) {
+    test_vals <- test_func(models[[model_order[i]]], models[[model_order[j]]], obs, scf_func)
+
+    val_matrix[j, i] <- test_vals$pval
+    val_matrix[i, j] <- test_vals$zval
+  }
+}
+val_matrix[length(models), length(models)] <- scale * scores[model_order[length(models)]]
+
+write.csv(val_matrix, file.path(fpath, paste0("tests_", name, ".csv")))
+
+print_tex_table(
+  val_matrix,
+  col_names = colnames(val_matrix),
+  digits = rep(n_digits, length(models)),
+  make_strong = rownames(val_matrix),   # just emphasize diagonals
+  strong_symbol = "\\fbox",
+  file_path = file.path(fpath, paste0("tests_", name, ".tex"))
+)
 
 ################################################################################
 # Visualize Poisson score (differences) temporally
@@ -782,7 +936,7 @@ ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
 # Murphy diagramm
 ################################################################################
 
-S_elem <- compiler::cmpfun(S_theta) # compile function to reduce runtime a bit
+S_elem <- compiler::cmpfun(s_theta_da) # compile function to reduce runtime a bit
 
 n_theta <- 100
 log_grid <- seq(-24, 4, len = n_theta)
@@ -800,13 +954,39 @@ for (m in 1:length(models)) {
 }
 colnames(murphy_df) <- model_names
 
-# S_theta sums, but we want daily averages
-murphy_df <- murphy_df / n_days
-
 # or read it in
 murphy_df <- read.csv("./figures7/murphy_df.csv") %>%
   select(all_of(model_names))
 
+x_midpoints <- (log_grid[-1] + log_grid[-n_theta]) / 2
+best_models <- apply(as.matrix(murphy_df), 1, which.min)
+best_models_bar <- data.frame(Model = colnames(murphy_df)[best_models],
+                              xmin = c(log_grid[1], x_midpoints),
+                              xmax = c(x_midpoints, log_grid[n_theta]),
+                              ymin = 0.32, ymax = 0.325)
+
+murphy_diag <- data.frame(murphy_df) %>%
+  mutate(theta = log_grid) %>%
+  pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
+  ggplot() +
+  geom_line(aes(x = theta, y = value, color = Model), size = 0.3) +
+  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  geom_rect(data = best_models_bar, aes(color = Model, fill = Model, xmin = xmin,
+                                        xmax = xmax, ymin = ymin, ymax = ymax),
+            show.legend = F) +
+  scale_color_manual(name = NULL, values = model_colors,
+                     guide = guide_legend(override.aes = list(size = 0.5))) +
+  scale_fill_manual(name = NULL, values = model_colors) +
+  xlab(expression(paste("Threshold log", (theta)))) +
+  ylab("Elementary score") +
+  my_theme +
+  theme(legend.position = c(0.01, 0.1), legend.justification = c(0, 0))
+
+combine <- grid.arrange(murphy_diag, nrow = 1,
+                        top = textGrob("Logarithmic Murphy Diagram",
+                                       gp = gpar(fontsize = title_size)))
+
+# murphy difference diagram
 murphy_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
   mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
@@ -827,7 +1007,7 @@ combine <- grid.arrange(murphy_diag, nrow = 1,
                         top = textGrob("Murphy Difference Diagram",
                                        gp = gpar(fontsize = title_size)))
 
-file_path <- file.path(fpath, "Fig7_MurphyDiag.pdf")
+file_path <- file.path(fpath, "Fig_LogMurphyDiag.pdf")
 ggsave(file_path, width = 145, height = 75, unit = "mm", plot = combine)
 
 # now look at Murphy diagram of miscalibration and discrimination component
@@ -898,19 +1078,21 @@ df_plot <- rbind(murphy_df, df_collect) %>%
 
 murphy_score_cmps <- ggplot(df_plot) +
   geom_hline(yintercept = 0.0, color = "black", size = 0.3) +
-  geom_line(aes(x = log_theta, y = value, color = Model,
-                group = paste(Model, Type), linetype = Type),
+  geom_line(aes(x = log_theta, y = value, color = Model, group = paste(Model, Type)),
             size = 0.3) +
   scale_color_manual(name = NULL, values = model_colors,
                      guide = guide_legend(override.aes = list(size = 0.5))) +
   scale_x_continuous(breaks = -4:1 * 5) +
-  scale_y_continuous(sec.axis = sec_axis(~./mcb_fac, name=NULL)) +
-  scale_linetype_manual(name = NULL,
-                        values = c("Score" = "solid", "Miscalibration" = "dotdash",
-                                   "Discrimination" = "dashed")) +
+  scale_y_continuous(breaks = 0:3 * 0.1, minor_breaks = -4:6 * 0.05,
+                     sec.axis = sec_axis(~./mcb_fac, name = NULL,
+                                         breaks = c(-2:0 * 0.02, 1:3 * 0.01),
+                                         labels = c(2:0 * 0.02 * mcb_fac, 1:3 * 0.01))) +
   xlab(expression(paste("Threshold log", (theta)))) +
   ylab(NULL) +
   my_theme +
+  annotate("text", x = -Inf, y = 0.12, label = "Average score", angle = 90, vjust = 2) +
+  annotate("text", x = Inf, y = -0.12, label = "DSC", angle = -90, vjust = 2) +
+  annotate("text", x = Inf, y = 0.09, label = "MCB", angle = -90, vjust = 2) +
   theme(legend.position = "bottom", legend.key.size = unit(4, "mm"))
 
 combine <- grid.arrange(murphy_score_cmps, nrow = 1,
