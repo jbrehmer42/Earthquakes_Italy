@@ -11,12 +11,14 @@ library(sf)               # for st_as_sf : convert data.frame to geographic sf f
 library(rnaturalearth)    # for ne_countries : load country data
 library(scales)           # for trans_new : custom data transformation
                           # for seq_gradient_pal : custom color gradient
+library(geomtextpath)     # for geom_labelabline: draw lines with label
 
 source("data_prep.R")
 
 # use standard colors of ggplot for discrete variables
 model_colors <- c("FCM" = "#F8766D", "LG" = "#00BF7D",  "LM" = "#A3A500",
                   "SMA" = "#00B0F6", "LRWA" = "#E76BF3")
+model_order <- 1:5
 
 cmp_model <- "LM"
 cmp_m <- sym(cmp_model)
@@ -229,7 +231,7 @@ temp_plot <- pred_by_day %>%
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = pred_by_day$X[new_year], labels = year(times[new_year])) +
   scale_y_log10() +
-  scale_color_manual(name = NULL, values = model_colors,
+  scale_color_manual(name = NULL, values = model_colors[model_names[model_order]],
                      guide = guide_legend(order = 1)) +
   scale_shape_manual(name = NULL, values = c("Observed earthquakes" = 1)) +
   xlab(NULL) +
@@ -260,8 +262,10 @@ events_filtered <- events %>%
 # with grid.arrange
 cb_limits <- range(pred_by_cell_long$value)   # colorbar limits
 
-create_row <- function(row, only_legend = F) {
+create_row <- function(row, only_legend = F, top = F) {
   pred_dt <- filter(pred_by_cell_long, Model %in% row)
+  top_margin <- ifelse(top, 5.5, 0.0)
+  bottom_margin <- ifelse(top, 0.0, 5.5)
   pl <- ggplot() +
     facet_wrap(~factor(Model, ordered = T, levels = row), nrow = 1) +
     geom_tile(data = pred_dt, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
@@ -282,7 +286,8 @@ create_row <- function(row, only_legend = F) {
     scale_color_manual(name = "Observed\nearth-\nquakes", values = c("Obs. earthquakes" = "black"),
                        labels = "", guide = guide_legend(order = 2, override.aes = list(size = 4))) +
     my_theme +
-    theme(legend.position = "right", plot.margin = margin(5.5, 5.5, 5.5, 11.5))
+    theme(legend.position = "right",
+          plot.margin = margin(top_margin, 5.5, bottom_margin, 11.5))
   if (only_legend) {
     return(get_legend(pl + guides(size = "none")))        # only show legend
   } else {
@@ -291,17 +296,16 @@ create_row <- function(row, only_legend = F) {
 }
 print(paste("Check:", times[i_time], "= 03.04.2009?"))
 # use short dash ("en dash") = \u2013
-spat_subtitle <- paste("For the 7\u00adday Period Starting April 3, 2009^*")
-spat_plot <- grid.arrange(create_row(c("FCM", "LG", "LM")), create_row(c("SMA", "LRWA")),
+spat_subtitle <- paste("For the 7\u00adday Period Starting April 3, 2009*")
+spat_plot <- grid.arrange(create_row(c("LM", "FCM", "LG"), top = T),
+                          create_row(c("SMA", "LRWA"), top = F),
                           nrow = 2)
 spat_plot <- grid.arrange(spat_plot, create_row(model_names, only_legend = T), nrow = 1,
                           widths = c(0.85, 0.15),
                           top = textGrob(spat_subtitle, x = unit(0.09, "npc"),
                                          hjust = 0, gp = gpar(fontsize = 11)))
 
-combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.37, 0.63),
-                        top = textGrob("Expected Number of Events",
-                                       gp = gpar(fontsize = title_size)))
+combine <- grid.arrange(temp_plot, spat_plot, nrow = 2, heights = c(0.37, 0.63))
 
 file_path <- file.path(fpath, "Fig2_Forecasts.pdf")
 ggsave(file_path, width = 145, height = 190, unit = "mm", plot = combine)
@@ -385,28 +389,29 @@ print_tex_table(
 )
 
 # Table 2: Poisson, Information Gain and Information Gain per event ------------
-t_sum <- matrix(NA, nrow = length(models), ncol = 3)
+t_sum <- matrix(NA, nrow = length(models), ncol = 4)
 rownames(t_sum) <- model_names
-colnames(t_sum) <- c("Poisson", "IG", "IGPE")
+colnames(t_sum) <- c("Poisson", "Pois-diff", "IG", "IGPE")
 
 for (i in 1:length(models)) {
   t_sum[i, "Poisson"] <- s_pois_da(models[[i]], obs)
-  t_sum[i, "IG"] <- mean(inf_gain(models[[which(model_names == "LM")]], models[[i]], obs))
-  t_sum[i, "IGPE"] <- mean(inf_gain_per_event(models[[which(model_names == "LM")]], models[[i]], obs),
-                           na.rm = T)
+  # we can do it like that, since LM is the first score we calculate in the loop
+  t_sum[i, "Pois-diff"] <- t_sum[i, "Poisson"] - t_sum["LM", "Poisson"]
+  t_sum[i, "IG"] <- sum(inf_gain(models[[which(model_names == "LM")]], models[[i]], obs))
+  t_sum[i, "IGPE"] <- cum_igpe(models[[which(model_names == "LM")]], models[[i]], obs)[n_days]
 }
 t_sum
 write.csv(t_sum, file.path(fpath, "Tab2_sum.csv"))
 
 col_names <- list(
-  c("", "\\bar{\\myS}", "IG", "IGPE")
+  c("", "$\\bar{\\myS}$", "$\\bar\\myS - \\bar\\myS^{(\\textrm{LM})}$", "IG", "IGPE")
 )
 print_tex_table(
   t_sum,
   col_names = col_names,
-  digits = c(2, 3, 3),
+  digits = c(2, 3, 3, 3),
   sep_after = "LG",
-  col_align = "r",
+  col_align = "c",
   file_path = file.path(fpath, "Tab2_sum.tex")
 )
 
@@ -497,7 +502,7 @@ csep_test <- function(fcst1, fcst2, y, scf) {
 }
 
 dm_test <- function(fcst1, fcst2, y, scf) {
-  diff_scores <- rowSums(scf(fcst1, y) - scf(fcst2, y))
+  diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
   mean_diff_score <- mean(diff_scores)
 
   auto_covs <- acf(diff_scores, lag.max = 7, type = "covariance", plot = F)$acf
@@ -610,7 +615,7 @@ score_plot <- ggplot() +
              size = point_size, alpha = point_alpha) +
   scale_x_continuous(breaks = scores$X[new_year], labels = NULL, limits = c(0, nrow(scores))) +
   scale_color_manual(name = "", values = model_colors) +
-  scale_shape_manual(name = "earthquakes", labels = c("= 0", "> 0"),
+  scale_shape_manual(name = "Number of\nearthquakes", labels = c("= 0", "> 0"),
                      values = c("FALSE" = 16, "TRUE" = 17),
                      guide = guide_legend(override.aes = list(alpha = 1, size = 1),
                                           direction = "vertical", title.position = "left")) +
@@ -673,7 +678,7 @@ cum_inf_plot <- df_cum %>%
   geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = (1:n_days)[new_year], labels = NULL, limits = c(1, n_days)) +
-  scale_color_manual(name = NULL, values = model_colors,
+  scale_color_manual(name = NULL, values = model_colors[model_names[model_order]],
                      guide = guide_legend(nrow = 1, keywidth = unit(4, "mm"))) +
   xlab(NULL) +
   ylab("Gain") +
@@ -702,7 +707,7 @@ cum_inf_pe_plot <- df_cum_pe %>%
                      guide = guide_legend(order = 1, direction = "horizontal",
                                           override.aes = list(alpha = 0.75))) +
   xlab(NULL) +
-  ylab("Gain per Event") +
+  ylab("Gain per event") +
   ggtitle(NULL) +
   guides(color = "none") +
   my_theme +
@@ -711,15 +716,14 @@ cum_inf_pe_plot <- df_cum_pe %>%
 
 aligned <- align_plots(score_plot, score_diff_plot, cum_inf_plot, cum_inf_pe_plot,
                        align = "v")
+# first values of each model of cum inf gain per event are NA since division by zero
 combine_plots <- grid.arrange(aligned[[1]], aligned[[2]], aligned[[3]], aligned[[4]],
-                              ncol = 1,
-                              top = textGrob("Daily Scores and Cumulative Information Gains",
-                                             gp = gpar(fontsize = title_size)))
+                              ncol = 1)
 file_path <- file.path(fpath, "Fig_score-and-info.pdf")
 ggsave(file_path, width = 140, height = 190, unit = "mm", plot = combine_plots)
 
 rm(scores, scores_long, diff_scores, combine_plots, score_plot, score_diff_plot, my_trans,
-   df_cum, df_cum_pe, cum_inf_plot, cum_inf_pe_plot)
+   df_cum, df_cum_pe, cum_inf_plot, cum_inf_pe_plot, aligned)
 
 ################################################################################
 # Visualize Poisson score differences spatially
@@ -814,8 +818,14 @@ rm(scores, diff_scores, combine_plots, spat_plot, eq_loc)
 
 S_elem <- compiler::cmpfun(s_theta_da) # compile function to reduce runtime a bit
 
+daily <- FALSE
+
 n_theta <- 100
-log_grid <- seq(-24, 4, len = n_theta)
+if (!daily) {
+  log_grid <- seq(-24, 4, len = n_theta)
+} else {
+  log_grid <- seq(-7, 4, len = n_theta)
+}
 grd <- exp(log_grid)
 
 # use for loops, as otherwise memory demand is too high
@@ -834,13 +844,13 @@ colnames(murphy_df) <- model_names
 murphy_df <- read.csv("./figures7/murphy_df.csv") %>%
   select(all_of(model_names))
 
-model_order <- 1:5
 x_midpoints <- (log_grid[-1] + log_grid[-n_theta]) / 2
 best_models <- apply(as.matrix(murphy_df), 1, which.min)
 best_models_bar <- data.frame(Model = colnames(murphy_df)[best_models],
                               xmin = c(log_grid[1], x_midpoints),
                               xmax = c(x_midpoints, log_grid[n_theta]),
-                              ymin = 0.32, ymax = 0.325)
+                              ymin = ifelse(daily, 0.24, 0.32),
+                              ymax = ifelse(daily, 0.245, 0.325))
 
 murphy_diag <- data.frame(murphy_df) %>%
   mutate(theta = log_grid) %>%
@@ -906,11 +916,10 @@ for (i in 1:n_mods) {
 
 df_collect <- rbind(
   # again divide by n_days to get daily averages
-  cbind(data.frame(MCB_diag / n_days), Type = "MCB"),
-  cbind(data.frame(DSC_diag / n_days), Type = "DSC")
+  cbind(data.frame(MCB_diag), Type = "MCB"),
+  cbind(data.frame(DSC_diag), Type = "DSC")
 )
 colnames(df_collect) <- c(model_names, "Type")
-UNC_diag <- UNC_diag / n_days
 
 df_collect <- df_collect %>%
   mutate(log_theta = rep(log_grid, 2)) %>%
@@ -926,29 +935,49 @@ murphy_df <- read.csv("./figures7/murphy_df.csv") %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
   mutate(Type = "Score")
 
-mcb_fac <- 5
+if (!daily) {
+  mcb_fac <- 5
+  x_breaks <- -4:1 * 5
+  y_breaks <- 0:3 * 0.1
+  y_minor_breaks <- -4:6 * 0.05
+  sec_breaks <- c(-2:0 / mcb_fac * 0.1, 1:3 / 2 * 1 / mcb_fac * 0.1)
+  sec_labels <- c(2:0 * 0.1, 1:3 / 2 * 1 / mcb_fac)
+  lower_lim <- NA
+} else {
+  mcb_fac <- 2
+  x_breaks <- -3:2 * 2
+  y_breaks <- 0:2 * 0.1
+  y_minor_breaks <- -3:5 * 0.05
+  sec_breaks <- c(-1:0 / mcb_fac * 0.1, 0:2 / 2 * 1 / mcb_fac * 0.1)
+  sec_labels <- c(1:0 * 0.1, 0:2 / 2 * 1 / mcb_fac * 0.1)
+  lower_lim <- -0.13
+}
 df_plot <- rbind(murphy_df, df_collect) %>%
   mutate(value = ifelse(Type == "Discrimination", value * (-1), value),
          value = ifelse(Type == "Miscalibration", value * mcb_fac, value))
 
 murphy_score_cmps <- ggplot(df_plot) +
+  geom_rect(data = best_models_bar, aes(color = Model, fill = Model, xmin = xmin,
+                                        xmax = xmax, ymin = ymin, ymax = ymax),
+            show.legend = F) +
   geom_hline(yintercept = 0.0, color = "black", size = 0.3) +
   geom_line(aes(x = log_theta, y = value, color = Model, group = paste(Model, Type)),
             size = 0.3) +
-  scale_color_manual(name = NULL, values = model_colors,
-                     guide = guide_legend(override.aes = list(size = 0.5))) +
-  scale_x_continuous(breaks = -4:1 * 5) +
-  scale_y_continuous(breaks = 0:3 * 0.1, minor_breaks = -4:6 * 0.05,
+  scale_color_manual(name = NULL, values = model_colors[model_names[model_order]]) +
+  scale_fill_manual(name = NULL, values = model_colors) +
+  scale_x_continuous(breaks = x_breaks) +
+  scale_y_continuous(breaks = y_breaks, minor_breaks = y_minor_breaks,
+                     limits = c(lower_lim, NA),
                      sec.axis = sec_axis(~./mcb_fac, name = NULL,
-                                         breaks = c(-2:0 * 0.02, 1:3 * 0.01),
-                                         labels = c(2:0 * 0.02 * mcb_fac, 1:3 * 0.01))) +
-  xlab(expression(paste("Threshold log", (theta)))) +
+                                         breaks = sec_breaks, labels = sec_labels)) +
+  xlab(expression(paste("log", (theta)))) +
   ylab(NULL) +
   my_theme +
   annotate("text", x = -Inf, y = 0.12, label = "Average score", angle = 90, vjust = 2) +
-  annotate("text", x = Inf, y = -0.12, label = "DSC", angle = -90, vjust = 2) +
-  annotate("text", x = Inf, y = 0.09, label = "MCB", angle = -90, vjust = 2) +
-  theme(legend.position = "bottom", legend.key.size = unit(4, "mm"))
+  annotate("text", x = Inf, y = ifelse(daily, -0.05, -0.12), label = "DSC", angle = -90,
+           vjust = 2) +
+  annotate("text", x = Inf, y = ifelse(daily, 0.06,0.09), label = "MCB", angle = -90, vjust = 2) +
+  theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0))
 
 combine <- grid.arrange(murphy_score_cmps, nrow = 1,
                         top = textGrob("Score Components by Elementary Score",
@@ -973,6 +1002,110 @@ rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine,
    MCB_diag, DSC_diag, UNC_diag, combine_back)
 
 ################################################################################
+# Score component plot
+################################################################################
+
+daily <- FALSE
+
+get_score_cmp_plot <- function(results) {
+    scores_wide <- results %>%
+    filter(is.finite(value)) %>%
+    pivot_wider(id_cols = c(Model, Scoring), names_from = Type, values_from = value) %>%
+    mutate(Scoring = ifelse(Scoring == "pois", "Poisson", "Quadratic"))
+  unc <- mean(with(scores_wide, Score - MCB + DSC), na.rm = T)    # recover uncertainty component
+  pois_panel <- scores_wide$Scoring[1] == "Poisson"
+
+  fmt <- paste0("%.",  ifelse(pois_panel, 2, 3), "f")
+  labelline_just <- ifelse(pois_panel, 0.58, 0.32)  # position of scores at lines
+
+  # shift labels away from points to make them readable
+  if (!daily) {
+    justs <- data.frame(Model = c("LM", "FCM", "LG", "SMA", "LRWA"),
+                        hjusts = c(0.0, 1.2, 0.0, 1.2, 0.0),
+                        vjusts = c(1.5, 0.0, -1.0, 0.0, 1.5))
+  } else {
+    justs <- data.frame(Model = c("LM", "FCM", "LG", "SMA", "LRWA"),
+                        hjusts = c(0.0, 0.5, 1.2, 0.5, 0.0),
+                        vjusts = c(1.5, 1.5, 1.5, -1.0, 1.5))
+  }
+
+  iso <- data.frame(
+    intercept = seq(min(scores_wide$DSC) - max(scores_wide$MCB, na.rm = T),
+                    max(scores_wide$DSC, na.rm = T),
+                    length.out = 10)) %>%
+    mutate(label = sprintf(fmt, unc - intercept))    # miscalibration is 0, intercept corresponds to DSC
+
+  # mcb_range <- range(scores_wide$MCB)
+  dsc_range <- range(scores_wide$DSC)
+
+  pl <- left_join(scores_wide, justs, by = "Model") %>%
+    ggplot() +
+    facet_wrap(~Scoring) +
+    geom_abline(data = iso, aes(intercept = intercept, slope = 1.0), color = "lightgray",
+                alpha = 0.5, size = 0.5) +
+    geom_labelabline(data = iso, aes(intercept = intercept, slope = 1.0, label = label),
+                     color = "gray50", hjust = labelline_just, size = 7 * 0.36, text_only = TRUE,
+                     boxcolour = NA, straight = TRUE) +
+    geom_point(aes(x = MCB, y = DSC, color = Model), size = 1.5) +
+    geom_text(aes(x = MCB, y = DSC, label = Model, hjust = hjusts, vjust = vjusts),
+              size = 8 * 0.36) +
+    scale_color_manual(values = model_colors) +
+    coord_cartesian(ylim = (c(dsc_range[1] - 0.1 * (dsc_range[2] - dsc_range[1]), NA))) +
+    annotate("label", x = Inf, y = -Inf, label = paste0("UNC = ", sprintf(fmt, unc)),
+             hjust = 1.05, vjust = -0.2) +
+    my_theme +
+    theme(aspect.ratio = 1, legend.position = "none", axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(), axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(), panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+  return(pl)
+}
+
+get_score_cmps <- function(x, y, name, scf_list = list("pois" = s_pois_da, "quad" = s_quad_da)) {
+  x <- as.vector(x)
+  y <- as.vector(y)
+
+  scores <- data.frame()
+  ord <- order(x, y, decreasing = c(FALSE, TRUE))
+  x <- x[ord]
+  y <- y[ord]
+  x_rc <- monotone(y)
+
+  for (scf_name in names(scf_list)) {
+    scf <- scf_list[[scf_name]]
+    s <- scf(x, y)
+    s_rc <- scf(x_rc, y)
+    s_mg <- scf(mean(y), y)
+
+    scores <- rbind(
+      scores,
+      data.frame(Model = name, Scoring = scf_name, Type = c("Score", "MCB", "DSC"),
+                 value = c(s, s - s_rc, s_mg - s_rc))
+    )
+  }
+  return(scores)
+}
+
+df_score_cmp <- do.call(
+  rbind,
+  lapply(1:length(models), function(i) get_score_cmps(models[[i]], obs, model_names[i]))
+)
+
+df_score_cmp <- read.csv(file.path(fpath, "score-cmps.csv"))
+
+pl_pois <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"))
+pl_quad <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "quad"))
+
+my_plot <- grid.arrange(pl_pois, pl_quad, nrow = 1,
+                        top = textGrob("Score Components",
+                                       gp = gpar(fontsize = title_size)))
+
+file_path <- file.path(fpath, "Fig_MCB-DSC.pdf")
+ggsave(file_path, width = 145, height = 80, unit = "mm", plot = my_plot)
+
+rm(my_plot, pl_pois, pl_quad, df_score_cmp)
+
+################################################################################
 # Reliability diagramm
 ################################################################################
 
@@ -981,10 +1114,17 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
   x <- x[ord]
   y <- y[ord]
 
-  # we can compress step function by only storing first and last value and jumps!
-  filter_jumps <- function(v) {
+  # compress fit by only storing values around jumps that belong to distinct x-values
+  # (if there is a horizontal section of width 0 with more than two data points,
+  #  we would have two identical points in the data though we need only one)
+  filter_jumps <- function(x, v) {
     n <- length(v)
-    return(c(T, v[c(-1, -n)] - v[c(-n+1, -n)] > 0, T))
+    # filter points around jumps (points immediately before and after a jump)
+    next_to_jump <- c(T, v[-1] - v[-n] > 0) | c(v[-n] - v[-1] < 0, T)
+    x_at_jump <- x[next_to_jump]
+    # set to False if corresponding x-values do not change
+    next_to_jump[next_to_jump] <- c(T, x_at_jump[-1] - x_at_jump[-length(x_at_jump)] > 0)
+    return(next_to_jump)
   }
 
   score <- s_pois_da
@@ -998,13 +1138,8 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
   dsc <- s_mg - s_rc
   unc <- s_mg
 
-  n_samples <- n_resamples + 1 # total number of samples including observed sample
-  low <- floor(n_samples * (1 - region_level) / 2)
-  up <- n_samples - low
-  low <- pmax(low, 1)
-
-  jumps <- filter_jumps(x_rc)
-  collect_vals <- list(data.table(x = x[jumps], y = x_rc[jumps], I = "Fit"))
+  jumps <- filter_jumps(x, x_rc)
+  rc_fit <- data.table(x = x[jumps], y = x_rc[jumps])
 
   t <- table(y) / length(y)
   vals <- as.numeric(names(t))
@@ -1014,7 +1149,9 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
   split <- ceiling(seq(1, length(y), length.out = n_split))
   cmp <- matrix(rep(cumsum(f_y[-length(f_y)]), split[2] - split[1] + 1),
                 ncol = length(f_y) - 1, byrow = T)
-  for (i in 2:n_samples) {
+
+  collect_vals <- list()
+  for (i in 1:n_resamples) {
     for (j in 2:n_split) {
       i_vec <- split[j - 1]:split[j]
       u <- runif(length(i_vec), 0, 1 + eps[i_vec])
@@ -1022,21 +1159,25 @@ reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
     }
     ord <- order(x, y, decreasing = c(FALSE, TRUE))
     x_rc <- monotone(y[ord])
-    jumps <- filter_jumps(x_rc)
-    collect_vals[[i]] <- data.table(x = x[jumps], y = x_rc[jumps],
-                                    I = paste0("R", i))
+    jumps <- filter_jumps(x, x_rc)
+    # x is already sorted, so x[ord] would just resort x on sections on which it
+    # is already constant
+    collect_vals[[i]] <- data.table(x = x[jumps], y = x_rc[jumps], I = paste0("R", i))
   }
-  # build joint data table with the collected values
-  results <- do.call(rbind, collect_vals) %>%
-    pivot_wider(id_cols = x, values_from = y, names_from = I, values_fill = NA) %>%
-    arrange(x) %>%                  # sort x-value
-    setnafill(type = "locf") %>%    # use last available observation to fill NA (step function!)
-    apply(1, function(row) {
-      sorted <- sort(row[c(-1, -2)])
-      c(row[1], row[2], sorted[low], sorted[up])
+  # linearly interpolate resampled fits on x values of original fit
+  resampl_fits <- do.call(cbind, lapply(collect_vals, function(df) {
+    approx(x = df$x, y = df$y, xout = rc_fit$x, method = "linear", yleft = NA, yright = NA)$y
+  }))
+  val_low_and_up <- apply(resampl_fits, 1, function(row) {
+      sorted <- sort(row)
+      low <- floor(length(sorted) * (1 - region_level) / 2)   # maybe there are NA, so recalculate it
+      up <- length(sorted) - low
+      low <- pmax(low, 1)
+      c(sorted[low], sorted[up])
     }) %>% t() %>%  # apply writes results in columns
     as.data.table()
 
+  results <- cbind(rc_fit, val_low_and_up)
   colnames(results) <- c("x", "x_rc", "lower", "upper")
   stats <- data.frame(Score = s, MCB = mcb, DSC = dsc, UNC = unc)
   return(list(results = results, stats = stats))
@@ -1050,7 +1191,8 @@ collect_stats <- data.table()
 set.seed(999)
 
 for (i in 1:length(models)) {
-  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), n_resamples = 20)
+  print(paste(model_names[i], Sys.time()))
+  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), n_resamples = 100)
   recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
   collect_stats <- rbind(
     collect_stats,
@@ -1102,7 +1244,7 @@ my_trans <- function(x) {
     arrange(x) %>%
     setnafill(type = "locf") %>%
     filter(a > 0) %>%
-    arrange(a) %>%
+    arrange(a) %>%      # restore original sorting
     pull(y)
 }
 # position of inset histograms
@@ -1119,6 +1261,12 @@ text_x <- 0.02
 text_y <- 0.64
 # add to name
 add_name <- ""
+
+# for daily ----------------------------------------
+breaks <- c(0, 0.2, 0.3, 0.4, 1)
+t_breaks <- my_trans(breaks)
+labels <- c("0", rep("", length(breaks) - 2), "1")
+add_name <- "_daily-ecdf"
 
 # 2 - use two sided log transform ----------------------------------------------
 d <- 10^9
@@ -1141,20 +1289,41 @@ add_name <- "_log"
 # 3 - use no / standard transform ----------------------------------------------
 my_trans <- function(x) x
 # position of inset histograms
-xmin <- 1.6
-xmax <- 2.2
+xmin <- 0.2
+xmax <- 1.0
 ymin <- 0.05
-ymax <- 0.6
+ymax <- 0.7
 # axis breaks and labels
 t_breaks <- seq(0, 2, length.out = 6)
 labels <- c("0", rep("", length(breaks) - 2), 2)
 # position of score components
-text_x <- 1.35
-text_y <- 1.40
+text_x <- -1
+text_y <- 0.6
 # add to name
 add_name <- "_std"
 # cut confidence band at plot max
 recal_models$upper <- pmin(recal_models$upper, 2.2)
+
+# For daily forecasts ----------------------------------------------------------
+# 1 - log transform ------------------------------------------------------------
+my_trans <- function(x) log(x, base = 10)
+# position of inset histograms
+xmin <- 0.2
+xmax <- 1.2
+ymin <- -1.4
+ymax <- -0.6
+# axis breaks and labels
+breaks <- 10^(-3:1)
+t_breaks <- my_trans(breaks)
+labels <- breaks
+# position of score components
+text_x <- -1.3
+text_y <- 0.22
+# add to name
+add_name <- "_daily-log"
+# we need to take care about plot min
+vec <- c(recal_models$x, recal_models$lower)
+plot_min <- my_trans(min(vec[vec > 0]))
 
 # ------------------------------------------------------------------------------
 
@@ -1183,9 +1352,21 @@ for (i in 1:length(models)) {
 # specify rows separately to center align bottom row
 rows <- list(model_names[1:3], model_names[4:5])
 
-create_row <- function(row) {
+create_row <- function(row, top = TRUE) {
   dt_recal <- filter(recal_models, Model %in% row)
   dt_stats <- filter(collect_stats, Model %in% row)
+
+  top_margin <- ifelse(top, 5.5, 0.0)
+  bot_margin <- ifelse(top, 0.0, 5.5)
+
+  df_segments <-  dt_recal %>%
+    group_by(Model) %>%
+    group_modify(function(df, key) {
+      df %>%
+        mutate(x_pos = c("x0", ifelse(x_rc[-1] - x_rc[-nrow(df)] > 0, "x0", "x1"))) %>%
+        pivot_wider(id_cols = "x_rc", names_from = "x_pos", values_from = "x", values_fill = NA) %>%
+        filter(!is.na(x0), !is.na(x1))    # if there is one missing, throw it out
+    }, .keep = T)
 
   return(
     ggplot(dt_recal, aes(x = my_trans(x))) +
@@ -1194,7 +1375,10 @@ create_row <- function(row) {
                   alpha = 0.33, show.legend = FALSE) +
       geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
                   linetype = "dashed") +
-      geom_step(aes(y = my_trans(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
+      geom_line(aes(y = my_trans(x_rc), color = Model), size = 0.3, show.legend = FALSE) +
+      geom_segment(data = df_segments,
+                   aes(x = my_trans(x0), xend = my_trans(x1), y = my_trans(x_rc),
+                       yend = my_trans(x_rc), color = Model), size = 0.7, show.legend = FALSE) +
       scale_color_manual(values = model_colors) +
       scale_fill_manual(values = model_colors) +
       scale_x_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
@@ -1206,12 +1390,15 @@ create_row <- function(row) {
                 size = 7 * 0.36, hjust = 0, vjust = 0) +
       my_theme +
       theme(aspect.ratio = 1, panel.grid.major = element_blank(),
-            panel.grid.minor = element_blank(), plot.margin = margin(5.5, 3.5, 5.5, 3.5))
+            panel.grid.minor = element_blank(),
+            plot.margin = margin(top_margin, 3.5, bot_margin, 3.5))
   )
 }
 
-combine <- grid.arrange(create_row(rows[[1]]) + inset_histograms[which(model_names %in% rows[[1]])],
-                        create_row(rows[[2]]) + inset_histograms[which(model_names %in% rows[[2]])],
+combine <- grid.arrange(create_row(rows[[1]], top = T) +
+                          inset_histograms[which(model_names %in% rows[[1]])],
+                        create_row(rows[[2]], top = F) +
+                          inset_histograms[which(model_names %in% rows[[2]])],
                         top = textGrob("Reliability Diagram",
                                        gp = gpar(fontsize = title_size)),
                         bottom = textGrob("Forecasted mean",
