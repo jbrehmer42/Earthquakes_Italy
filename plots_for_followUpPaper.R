@@ -76,15 +76,6 @@ s_theta_da <- function(x, y, theta) {
   return(s / n_days) # daily averages
 }
 
-i_gpe <- function(X1, X2, Y) {
-  n_t <- rowSums(Y)
-  X1_t <- rowSums(X1)
-  X2_t <- rowSums(X2)
-  return(
-    rowSums(Y * (log(X1) - log(X2))) / n_t - (X1_t - X2_t) / n_t
-  )
-}
-
 ################################################################################
 # Figure 1: Distribution of earthquakes
 ################################################################################
