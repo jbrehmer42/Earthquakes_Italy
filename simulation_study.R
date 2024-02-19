@@ -5,6 +5,7 @@ library(ggplot2)
 library(gridExtra)
 library(grid)
 library(geomtextpath)     # for geom_labelabline
+library(data.table)
 # library(ggrepel)
 
 fpath <- "./figures8"
@@ -41,77 +42,18 @@ s_pois <- function(X, y) {
 
 scf_list <- list(quad = s_quad, pois = s_pois)
 
-generate_scenario <- function(n) {
-  lambda_0 <- MEAN_OBS
-
-  z <- rnorm(n)
-  mu <- 2 * lambda_0 * pnorm(z)
-  lambda <- rexp(n, rate = 1 / mu)
-  y <- rpois(n, lambda)
-
-  df <- data.frame(
-    y = y,
-    mean_fcst = lambda,
-    under_fcst = 0.5 * lambda,
-    over_fcst = 2 * lambda,
-    less_disc = mu
-  )
-}
-
-generate_scenario <- function(n) {
-  lambda_0 <- MEAN_OBS
-
-  z <- rnorm(n)
-  mu <- 2 * lambda_0 * pnorm(z)
-  lambda <- rgamma(n, shape = mu, rate = 1)
-  y <- rpois(n, lambda)
-
-  df <- data.frame(
-    y = y,
-    mean_fcst = lambda,
-    under_fcst = 0.5 * lambda,
-    over_fcst = 2 * lambda,
-    less_disc = mu
-  )
-}
-
-generate_scenario <- function(n) {
-  N <- prod(dim(obs))
-  if (n < 10^7) {
-    pick <- sample(1:N, min(n, nrow(df)))
+get_forecaster <- function(fcst, daily = F) {
+  if (!daily) {
+    discretize <- 10^(-8:0)
+    y <- as.vector(obs)
+    x <- as.vector(models[[1]])
+    x_sep <- median(x)
   } else {
-    pick <- 1:N
+    discretize <- 10^((-2:2) / 2)
+    y <- rowSums(obs)
+    x <- rowSums(models[[1]])
+    x_sep <- 1
   }
-
-  x <- as.vector(models[[1]])[pick]
-  y <- as.vector(obs)[pick]
-  ord <- order(x, y, decreasing = c(FALSE, TRUE))
-  x <- x[ord]
-  y <- y[ord]
-  x_rc <- monotone(y)
-
-  x_med <- median(x)
-
-  discretize <- 10^(-8:0)
-
-  df <- data.frame(
-    y = y,
-    lm = x,
-    lm_rc = x_rc,
-    lm_upped = discretize[sapply(x, function(a) sum(a >= discretize) + 1)],
-    lm_downed = discretize[sapply(x, function(a) sum(a >= discretize))],
-    lm_double = x * 5,
-    lm_half = x * 0.2
-  ) %>%
-    mutate(lm_overconf = ifelse(lm <= x_med, lm_downed, lm_upped),
-           lm_underconf = ifelse(lm <= x_med, lm_upped, lm_downed))
-}
-
-get_forecaster <- function(fcst) {
-  discretize <- 10^(-8:0)
-  y <- as.vector(obs)
-  x <- as.vector(models[[1]])
-  x_sep <- mean(x)
 
   if (fcst == "lm") {
     x <- x
@@ -129,10 +71,13 @@ get_forecaster <- function(fcst) {
   } else if (fcst == "lm_downed") {
     x <- discretize[sapply(x, function(a) sum(a >= discretize))]
   } else if (fcst == "lm_overconf") {
+    discretize <- sort(c(discretize, x_sep))
     upped <- discretize[sapply(x, function(a) sum(a > discretize) + 1)]
     downed <- discretize[sapply(x, function(a) sum(a >= discretize))]
     x <- ifelse(x > x_sep, upped, downed)
   } else if (fcst == "lm_underconf") {
+    # we need to add x_sep to avoid that this transformation is not increasing
+    discretize <- sort(c(discretize, x_sep))
     upped <- discretize[sapply(x, function(a) sum(a > discretize) + 1)]
     downed <- discretize[sapply(x, function(a) sum(a >= discretize))]
     x <- ifelse(x > x_sep, downed, upped)
@@ -162,7 +107,7 @@ dm_test <- function(fcst1, fcst2, y, scf) {
   diff_scores <- rowSums(scf(fcst1, y) - scf(fcst2, y))
   mean_diff_score <- mean(diff_scores)
 
-  auto_covs <- acf(diff_scores, lag.max = 7, type = "covariance", plot = F)$acf
+  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
   dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
 
   test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
@@ -171,7 +116,9 @@ dm_test <- function(fcst1, fcst2, y, scf) {
 }
 
 run_simulation_study <- function(vec_fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2",
-                                              "lm_upped", "lm_downed")) {
+                                              "lm_upped", "lm_downed", "lm_underconf",
+                                              "lm_overconf"),
+                                 daily = FALSE) {
   scores <- data.frame()
   reliability <- data.frame()
   murphy <- data.frame()
@@ -183,7 +130,7 @@ run_simulation_study <- function(vec_fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2",
 
   for (forecaster in vec_fcst) {
     cat(forecaster)
-    df <- get_forecaster(forecaster)
+    df <- get_forecaster(forecaster, daily = daily)
     x <- df$x
     y <- df$y
     ord <- order(x, y, decreasing = c(FALSE, TRUE))
@@ -248,18 +195,26 @@ sort_forecasts <- function(fcsts) {
   ))
 }
 
-get_score_cmp_plot <- function(results) {
+get_score_cmp_plot <- function(results, daily = F) {
   scores_wide <- results %>%
     filter(is.finite(value)) %>%
-    pivot_wider(id_cols = c(fcst, I, Scoring), names_from = Type, values_from = value) %>%
+    pivot_wider(id_cols = c(fcst, Scoring), names_from = Type, values_from = value) %>%
     mutate(Scoring = ifelse(Scoring == "pois", "Poisson", "Quadratic"))
   unc <- mean(with(scores_wide, Score - MCB + DSC), na.rm = T)
 
   fmt <- paste0("%.",  ifelse(scores_wide$Scoring[1] == "Poisson", 2, 3), "f")
 
-  justs <- data.frame(fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2", "lm_upped", "lm_downed", "lm_overconf", "lm_underconf"),
-                      hjusts = c(-0.3, -0.2, 0.5, -0.1, 0.0, 0.0, 0.0, 0.0),
-                      vjusts = c(-0.6, 1.3, 1.8, -0.7, 1.8, 1.8, -1.0, -1.0))
+  if (!daily) {
+    justs <- data.frame(fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2", "lm_upped", "lm_downed", "lm_overconf", "lm_underconf"),
+                        hjusts = c(-0.3, -0.2, 0.5, -0.1, 0.0, 0.0, 0.0, 0.0),
+                        vjusts = c(-0.6, 1.3, 1.8, -0.7, 1.8, 1.8, -1.0, -1.0))
+  } else {
+    justs <- data.frame(fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2", "lm_upped", "lm_downed", "lm_overconf", "lm_underconf"),
+                        hjusts = c(-0.3, -0.2, 0.5, -0.3, -0.2, 0.0, 0.0, 0.0),
+                        vjusts = c(-0.6, 1.3, 1.8, 0.2, 0.2, 1.8, -1.0, -1.0))
+  }
+
+  my_hjust <- ifelse(daily, 0.38, 0.55)
 
   iso <- data.frame(
     intercept = seq(-max(scores_wide$MCB, na.rm = T), max(scores_wide$DSC, na.rm = T),
@@ -277,10 +232,11 @@ get_score_cmp_plot <- function(results) {
     geom_abline(data = iso, aes(intercept = intercept, slope = 1.0), color = "lightgray",
                 alpha = 0.5, size = 0.5) +
     geom_labelabline(data = iso, aes(intercept = intercept, slope = 1.0, label = label),
-                     color = "gray50", hjust = 0.55, size = 7 * 0.36, text_only = TRUE,
+                     color = "gray50", hjust = my_hjust, size = 7 * 0.36, text_only = TRUE,
                      boxcolour = NA, straight = TRUE) +
     geom_point(aes(x = MCB, y = DSC, color = fcst), size = 1.5) +
-    geom_text(aes(x = MCB, y = DSC, label = change_names(fcst), hjust = hjusts, vjust = vjusts),
+    geom_text(aes(x = MCB, y = DSC, label = change_names(fcst), hjust = hjusts, vjust = vjusts,
+                  color = fcst),
               size = 8 * 0.36) +
     scale_color_discrete() +
     coord_cartesian(xlim = mcb_range + c(0, 1) / 10 * diff(mcb_range),
@@ -296,9 +252,9 @@ get_score_cmp_plot <- function(results) {
   return(pl)
 }
 
-plot_score_components <- function(results) {
-  pl_pois <- get_score_cmp_plot(filter(results, Scoring == "pois"))
-  pl_quad <- get_score_cmp_plot(filter(results, Scoring == "quad"))
+plot_score_components <- function(results, daily = F) {
+  pl_pois <- get_score_cmp_plot(filter(results, Scoring == "pois"), daily = daily)
+  pl_quad <- get_score_cmp_plot(filter(results, Scoring == "quad"), daily = daily)
 
   my_plot <- grid.arrange(pl_pois, pl_quad, nrow = 1,
                           top = textGrob("Score Components",
@@ -318,12 +274,19 @@ make_groups <- function(df) {
   return(df_groups)
 }
 
-get_ecdf_trans <- function() {
+get_ecdf_trans <- function(daily = FALSE) {
   col_ecdfs <- list()
-    for (i in 1:length(models)) {
+  for (i in 1:length(models)) {
+    if (daily) {
+      t <- table(rowSums(models[[i]]))
+      col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
+                                   y = c(0, cumsum(as.numeric(t))) / prod(dim(models[[i]])),
+                                   M = model_names[i])
+    } else {
       col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"),
                                  row.names = 1)
     }
+  }
   mean_ecdf <- do.call(rbind, col_ecdfs) %>%
     pivot_wider(id_cols = x, names_from = M, values_from = y, values_fill = NA) %>%
     arrange(x) %>%
@@ -342,7 +305,7 @@ get_ecdf_trans <- function() {
   return(my_trans)
 }
 
-plot_rel <- function(reliability, use_ecdf = T) {
+plot_rel <- function(reliability, use_ecdf = T, daily = F) {
   plot_data <- make_groups(reliability)
 
   use_points <- c("lm_upped", "lm_downed", "lm_underconf", "lm_overconf")
@@ -357,14 +320,20 @@ plot_rel <- function(reliability, use_ecdf = T) {
     }, .keep = T)
 
   if (use_ecdf) {
-    my_trans <- get_ecdf_trans()
+    my_trans <- get_ecdf_trans(daily = daily)
     my_breaks <- c(0, 10^c(-7, -6, -5, -4, 0))
     my_labels <- c("0", rep("", length(my_breaks) - 2), "1")
   } else {
-    d <- 10^6
-    my_trans <- function(x) sign(x) * log(abs(x) * d  + 1, base = 10)
-    my_breaks <- c(0, 10^c(-6, -4, -2, 0))
-    my_labels <- c("0", paste0("1e", c(-6, -4, -2)), "1")
+    if (daily) {
+      my_trans <- function(x) log(x, base = 10)
+      my_breaks <- c(0.1, 1, 10)
+      my_labels <- my_breaks
+    } else {
+      d <- 10^6
+      my_trans <- function(x) sign(x) * log(abs(x) * d  + 1, base = 10)
+      my_breaks <- c(0, 10^c(-6, -4, -2, 0))
+      my_labels <- c("0", paste0("1e", c(-6, -4, -2)), "1")
+    }
   }
   my_breaks <- my_trans(my_breaks)
 
@@ -425,8 +394,9 @@ plot_murphy <- function(murphy) {
 # Analysis ---------------------------------------------------------------------
 
 cmp_run_sim <- compiler::cmpfun(run_simulation_study)
+daily <- FALSE
 
-l_results <- cmp_run_sim()
+l_results <- cmp_run_sim(daily = daily)
 
 add <- "new7"
 
@@ -434,14 +404,14 @@ my_plot <- plot_murphy(l_results$murphy)
 ggsave(paste0("./../test/sim_study3/sim_", add, "_murphy.pdf"),
        width = 220, height = 110, unit = "mm", plot = my_plot)
 
-my_plot <- plot_rel(l_results$reliability)
+my_plot <- plot_rel(l_results$reliability, daily = daily, use_ecdf = T)
 my_plot <- grid.arrange(my_plot, top = textGrob("Reliability Diagram",
                                                 gp = gpar(fontsize = title_size)))
 file_path <- file.path(fpath, "Fig_RelDiag-manipulated.pdf")
 ggsave(file_path, width = 140, height = 125, unit = "mm", plot = my_plot)
 
-my_plot <- plot_score_components(l_results$scores)
-file_path <- file.path(fpath, "Fig_MCB-DSC-manipulated.pdf")
+my_plot <- plot_score_components(l_results$scores, daily = daily)
+file_path <- file.path(fpath, "Fig_MCB-DSC-manipulated-new.pdf")
 ggsave(file_path, width = 140, height = 80, unit = "mm", plot = my_plot)
 
 
