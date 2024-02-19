@@ -135,7 +135,8 @@ plot_results <- function(df) {
   bins <- seq(0, 1, length.out = 20 + 1)
 
   ggplot(df) +
-    facet_grid(Type~cmp) +
+  #  facet_grid(Type~cmp) +
+    facet_wrap(~cmp) +
     geom_histogram(aes(x = pval, y = ..density..), breaks = bins) +
     geom_vline(xintercept = c(0.05, 0.95), color = "#f8766d", linetype = "dashed",
                size = 0.3) +
@@ -152,6 +153,8 @@ cmp_run_sim <- compiler::cmpfun(sim_tests)
 res_dm_pois <- cmp_run_sim(dm_test, s_pois, B = 400)
 res_dm_quad <- cmp_run_sim(dm_test, s_quad, B = 400)
 
+res_csep <- cmp_run_sim(csep_test, s_pois, B = 400)
+
 plot_data <- rbind(
   cbind(res_dm_pois, Type = "Poisson"), cbind(res_dm_quad, Type = "Quadratic")
 )
@@ -160,7 +163,7 @@ finish <- grid.arrange(my_plot,
                        top = textGrob("Diebold-Mariano Tests",
                                       gp = gpar(fontsize = title_size)))
 
-file_path <- file.path(fpath, "Fig4_DieboldMariano.pdf")
-ggsave(file_path, width = 140, height = 100, unit = "mm", plot = finish)
+file_path <- file.path(fpath, "Fig_DieboldMariano.pdf")
+ggsave(file_path, width = 140, height = 60, unit = "mm", plot = finish)
 
 write.csv(plot_data, file.path(fpath, "simstudy_tests2_400.csv"))
