@@ -505,7 +505,7 @@ dm_test <- function(fcst1, fcst2, y, scf) {
   diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
   mean_diff_score <- mean(diff_scores)
 
-  auto_covs <- acf(diff_scores, lag.max = 7, type = "covariance", plot = F)$acf
+  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
   dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
 
   test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
@@ -572,6 +572,42 @@ print_tex_table(
   strong_symbol = "\\fbox",
   file_path = file.path(fpath, paste0("tests_", name, ".tex"))
 )
+
+# look at auto-covariance function --------------------------------------------
+analyze_autocorrelation_fcn <- function(s_func = s_pois) {
+  acf_data <- data.frame()
+
+  for (i in 1:(length(model_order) - 1)) {
+    for (j in (i + 1):length(model_order)) {
+      score_diffs <- s_func(models[[model_order[i]]], obs) - s_func(models[[model_order[j]]], obs)
+
+      acf_obj <- acf(rowSums(score_diffs), type = "covariance", plot = F)
+
+      acf_data <- rbind(
+        acf_data, data.frame(lag = acf_obj$lag, value = acf_obj$acf,
+                             cmp = paste(model_names[model_order[i]], "vs.", model_names[model_order[j]]))
+      )
+    }
+  }
+  return(acf_data)
+}
+
+acf_data <- analyze_autocorrelation_fcn()
+
+acf_plot <- ggplot(acf_data) +
+  facet_wrap(~cmp, scales = "free_y", ncol = 2) +
+  geom_hline(aes(yintercept = 0), size = 0.2, color = "gray") +
+  geom_segment(aes(x = lag, y = value, xend = lag, yend = 0), size = 0.5) +
+  xlab("Lag") +
+  ylab("Auto-covariance") +
+  my_theme
+
+finish <- grid.arrange(acf_plot,
+                       top = textGrob("ACF of Poisson score Difference",
+                                      gp = gpar(fontsize = title_size)))
+
+file_path <- file.path(fpath, "Fig_DM-acf-values.pdf")
+ggsave(file_path, width = 140, height = 160, unit = "mm", plot = finish)
 
 ################################################################################
 # Visualize Poisson score (differences) temporally
@@ -1007,8 +1043,26 @@ rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine,
 
 daily <- FALSE
 
-get_score_cmp_plot <- function(results) {
-    scores_wide <- results %>%
+dm_test <- function(fcst1, fcst2, y, scf) {
+  if (daily) {
+    diff_scores <- scf(fcst2, y) - scf(fcst1, y)
+  } else {
+    diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
+  }
+  mean_diff_score <- mean(diff_scores)
+
+  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
+  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
+
+  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
+  pval <- 1 - pnorm(test_stat)
+
+  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
+                    mean_diff = mean_diff_score))
+}
+
+get_score_cmp_plot <- function(results, non_sig_seg) {
+  scores_wide <- results %>%
     filter(is.finite(value)) %>%
     pivot_wider(id_cols = c(Model, Scoring), names_from = Type, values_from = value) %>%
     mutate(Scoring = ifelse(Scoring == "pois", "Poisson", "Quadratic"))
@@ -1016,24 +1070,30 @@ get_score_cmp_plot <- function(results) {
   pois_panel <- scores_wide$Scoring[1] == "Poisson"
 
   fmt <- paste0("%.",  ifelse(pois_panel, 2, 3), "f")
-  labelline_just <- ifelse(pois_panel, 0.58, 0.32)  # position of scores at lines
+  labelline_just <- ifelse(pois_panel, 0.48, 0.32)  # position of scores at lines
 
   # shift labels away from points to make them readable
   if (!daily) {
     justs <- data.frame(Model = c("LM", "FCM", "LG", "SMA", "LRWA"),
-                        hjusts = c(0.0, 1.2, 0.0, 1.2, 0.0),
-                        vjusts = c(1.5, 0.0, -1.0, 0.0, 1.5))
+                        hjusts = c(0.0, 1.2, 0.0, 1.2, -0.2),
+                        vjusts = c(1.5, 0.0, -1.0, 1.5, -0.2))
   } else {
     justs <- data.frame(Model = c("LM", "FCM", "LG", "SMA", "LRWA"),
                         hjusts = c(0.0, 0.5, 1.2, 0.5, 0.0),
                         vjusts = c(1.5, 1.5, 1.5, -1.0, 1.5))
   }
 
+  scf <- ifelse(pois_panel, s_pois_da, s_quad_da)
+  cmp_score <- ifelse(daily, scf(rowSums(models[[1]]), rowSums(obs)),
+                      scf(models[[1]], obs))
   iso <- data.frame(
     intercept = seq(min(scores_wide$DSC) - max(scores_wide$MCB, na.rm = T),
                     max(scores_wide$DSC, na.rm = T),
                     length.out = 10)) %>%
-    mutate(label = sprintf(fmt, unc - intercept))    # miscalibration is 0, intercept corresponds to DSC
+    mutate(score = unc - intercept,       # miscalibration is 0, intercept corresponds to DSC
+           # irrespective of daily or not sum obs is the sum over all earthquakes
+           igpe = n_days / sum(obs) * (score - cmp_score),
+           label = paste(sprintf(fmt, score), "/", sprintf(fmt, igpe)))
 
   # mcb_range <- range(scores_wide$MCB)
   dsc_range <- range(scores_wide$DSC)
@@ -1046,8 +1106,10 @@ get_score_cmp_plot <- function(results) {
     geom_labelabline(data = iso, aes(intercept = intercept, slope = 1.0, label = label),
                      color = "gray50", hjust = labelline_just, size = 7 * 0.36, text_only = TRUE,
                      boxcolour = NA, straight = TRUE) +
+    geom_segment(data = non_sig_seg, mapping = aes(x = x, y = y, xend = xend, yend = yend),
+                 linetype = "dotted", alpha = 0.5, size = 0.5) +
     geom_point(aes(x = MCB, y = DSC, color = Model), size = 1.5) +
-    geom_text(aes(x = MCB, y = DSC, label = Model, hjust = hjusts, vjust = vjusts),
+    geom_text(aes(x = MCB, y = DSC, label = Model, hjust = hjusts, vjust = vjusts, color = Model),
               size = 8 * 0.36) +
     scale_color_manual(values = model_colors) +
     coord_cartesian(ylim = (c(dsc_range[1] - 0.1 * (dsc_range[2] - dsc_range[1]), NA))) +
@@ -1086,21 +1148,46 @@ get_score_cmps <- function(x, y, name, scf_list = list("pois" = s_pois_da, "quad
   return(scores)
 }
 
+get_non_sig_connections <- function(df_score_cmp, scf, level = 0.1) {
+  non_sig_con <- data.frame()
+
+  for (i in 1:(length(models) - 1)) {
+    for (j in ((i + 1):length(models))) {
+      p <- dm_test(models[[i]], models[[j]], obs, scf)$pval
+      if ((p > level / 2) & (p < 1 - level / 2)) {
+        non_sig_con <- rbind(
+          non_sig_con,
+          data.frame(x = filter(df_score_cmp, Model == model_names[i], Type == "MCB")$value,
+                     y = filter(df_score_cmp, Model == model_names[i], Type == "DSC")$value,
+                     xend = filter(df_score_cmp, Model == model_names[j], Type == "MCB")$value,
+                     yend = filter(df_score_cmp, Model == model_names[j], Type == "DSC")$value)
+        )
+      }
+    }
+  }
+  return(non_sig_con)
+}
+
 df_score_cmp <- do.call(
   rbind,
   lapply(1:length(models), function(i) get_score_cmps(models[[i]], obs, model_names[i]))
 )
 
-df_score_cmp <- read.csv(file.path(fpath, "score-cmps.csv"))
+non_sig_seg_pois <- get_non_sig_connections(filter(df_score_cmp, Scoring == "pois"), s_pois)
+non_sig_seg_quad <- get_non_sig_connections(filter(df_score_cmp, Scoring == "quad"), s_quad)
 
-pl_pois <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"))
-pl_quad <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "quad"))
+df_score_cmp <- read.csv(file.path(fpath, "score-cmps.csv"))
+non_sig_seg_pois <- read.csv(file.path(fpath, "score-cmps_seg-pois.csv"))
+non_sig_seg_quad <- read.csv(file.path(fpath, "score-cmps_seg-quad.csv"))
+
+pl_pois <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois)
+pl_quad <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "quad"), non_sig_seg_quad)
 
 my_plot <- grid.arrange(pl_pois, pl_quad, nrow = 1,
-                        top = textGrob("Score Components",
+                        top = textGrob("Score Components (Daily fcsts)",
                                        gp = gpar(fontsize = title_size)))
 
-file_path <- file.path(fpath, "Fig_MCB-DSC.pdf")
+file_path <- file.path(fpath, "Fig_MCB-DSC_daily-fcsts.pdf")
 ggsave(file_path, width = 145, height = 80, unit = "mm", plot = my_plot)
 
 rm(my_plot, pl_pois, pl_quad, df_score_cmp)
