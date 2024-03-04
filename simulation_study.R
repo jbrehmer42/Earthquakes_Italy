@@ -8,7 +8,7 @@ library(geomtextpath)     # for geom_labelabline
 library(data.table)
 # library(ggrepel)
 
-fpath <- "./figures8"
+fpath <- "./figures9"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -26,9 +26,6 @@ my_theme <- list(
 ################################################################################
 
 set.seed(111)
-
-MEAN_OBS <- 3.656171e-05
-n_days <- dim(obs)[1]
 
 s_quad <- function(x, y) return(sum((x - y)^2) / n_days)
 s_pois <- function(X, y) {
@@ -63,9 +60,9 @@ get_forecaster <- function(fcst, daily = F) {
     x_rc <- monotone(y)
     x <- x_rc
   } else if (fcst == "lm_x5") {
-    x <- 5 * x
+    x <- 4 * x
   } else if (fcst == "lm_x0_2") {
-    x <- 0.2 * x
+    x <- 0.25 * x
   } else if (fcst == "lm_upped") {
     x <- discretize[sapply(x, function(a) sum(a > discretize) + 1)]
   } else if (fcst == "lm_downed") {
@@ -177,9 +174,9 @@ run_simulation_study <- function(vec_fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2",
 # Plots ------------------------------------------------------------------------
 
 change_names <- function(fcsts = NULL) {
-  mapping <- c("lm" = "lm", "lm_rc" = "lm rc", "lm_x5" = "lm x5", "lm_x0_2" = "lm x0.2",
-               "lm_upped" = "lm upped", "lm_downed" = "lm downed",
-               "lm_overconf" = "lm overconf", "lm_underconf" = "lm underconf")
+  mapping <- c("lm" = "LM", "lm_rc" = "LM rc", "lm_x5" = "LM x4", "lm_x0_2" = "LM x0.25",
+               "lm_upped" = "LM upped", "lm_downed" = "LM downed",
+               "lm_overconf" = "LM overconf", "lm_underconf" = "LM underconf")
   if (is.null(fcsts)) {
     return(mapping)
   } else {
@@ -206,7 +203,7 @@ get_score_cmp_plot <- function(results, daily = F) {
 
   if (!daily) {
     justs <- data.frame(fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2", "lm_upped", "lm_downed", "lm_overconf", "lm_underconf"),
-                        hjusts = c(-0.3, -0.2, 0.5, -0.1, 0.0, 0.0, 0.0, 0.0),
+                        hjusts = c(-0.3, -0.2, 0.5, -0.1, 0.7, 0.0, 0.7, 0.0),
                         vjusts = c(-0.6, 1.3, 1.8, -0.7, 1.8, 1.8, -1.0, -1.0))
   } else {
     justs <- data.frame(fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2", "lm_upped", "lm_downed", "lm_overconf", "lm_underconf"),
@@ -254,12 +251,7 @@ get_score_cmp_plot <- function(results, daily = F) {
 
 plot_score_components <- function(results, daily = F) {
   pl_pois <- get_score_cmp_plot(filter(results, Scoring == "pois"), daily = daily)
-  pl_quad <- get_score_cmp_plot(filter(results, Scoring == "quad"), daily = daily)
-
-  my_plot <- grid.arrange(pl_pois, pl_quad, nrow = 1,
-                          top = textGrob("Score Components",
-                                         gp = gpar(fontsize = title_size)))
-  return(my_plot)
+  return(pl_pois)
 }
 
 
@@ -269,6 +261,29 @@ make_groups <- function(df) {
     filter(df, fcst %in% c("lm", "lm_x5", "lm_x0_2")) %>% mutate(I = "B"),
     filter(df, fcst %in% c("lm", "lm_upped", "lm_downed")) %>% mutate(I = "C"),
     filter(df, fcst %in% c("lm", "lm_overconf", "lm_underconf")) %>% mutate(I = "D")
+  ) %>%
+    mutate(fcst = sort_forecasts(fcst))
+  return(df_groups)
+}
+
+get_score_display <- function(df_scores) {
+  # first coordinate: upper left, second coordinate: lower right
+  text_x <- c(0.02, 0.72)
+  text_y <- c(0.72, 0.02)
+
+  df_stats <- df_scores %>%
+    filter(Scoring == "pois") %>%
+    group_by(fcst) %>%
+    # data has to be in the correct order!!!
+    summarise(label = paste(c(Type, "UNC"), c("", " ", " ", " "),
+                            sprintf("%.3f", c(value, sum(value * c(1, -1, 1)))),
+                            collapse = "\n"), .groups = "drop")
+
+  df_groups <- rbind(
+    filter(df_stats, fcst %in% c("lm", "lm_rc")) %>% mutate(I = "A", x = rev(text_x), y = rev(text_y)),
+    filter(df_stats, fcst %in% c("lm_x5", "lm_x0_2")) %>% mutate(I = "B", x = text_x, y = text_y),
+    filter(df_stats, fcst %in% c("lm_upped", "lm_downed")) %>% mutate(I = "C", x = text_x, y = text_y),
+    filter(df_stats, fcst %in% c("lm_overconf", "lm_underconf")) %>% mutate(I = "D", x = text_x, y = text_y)
   ) %>%
     mutate(fcst = sort_forecasts(fcst))
   return(df_groups)
@@ -305,7 +320,7 @@ get_ecdf_trans <- function(daily = FALSE) {
   return(my_trans)
 }
 
-plot_rel <- function(reliability, use_ecdf = T, daily = F) {
+plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
   plot_data <- make_groups(reliability)
 
   use_points <- c("lm_upped", "lm_downed", "lm_underconf", "lm_overconf")
@@ -318,6 +333,7 @@ plot_rel <- function(reliability, use_ecdf = T, daily = F) {
         pivot_wider(id_cols = "x_rc", names_from = "x_pos", values_from = "x", values_fill = NA) %>%
         filter(!is.na(x0), !is.na(x1))    # if there is one missing, throw it out
     }, .keep = T)
+  df_scores <- get_score_display(score_cmps)
 
   if (use_ecdf) {
     my_trans <- get_ecdf_trans(daily = daily)
@@ -347,6 +363,8 @@ plot_rel <- function(reliability, use_ecdf = T, daily = F) {
     geom_segment(data = df_segments,
                  aes(x = my_trans(x0), xend = my_trans(x1), y = my_trans(x_rc),
                      yend = my_trans(x_rc), color = fcst), size = 0.7) +
+    geom_text(data = df_scores, mapping = aes(x = x, y = y, label = label, color = fcst),
+              size = 6 * 0.36, hjust = 0, vjust = 0) +
     xlab("Forecasted mean") +
     scale_x_continuous(breaks = my_breaks, labels = my_labels) +
     scale_y_continuous(breaks = my_breaks, labels = my_labels) +
@@ -404,14 +422,12 @@ my_plot <- plot_murphy(l_results$murphy)
 ggsave(paste0("./../test/sim_study3/sim_", add, "_murphy.pdf"),
        width = 220, height = 110, unit = "mm", plot = my_plot)
 
-my_plot <- plot_rel(l_results$reliability, daily = daily, use_ecdf = T)
-my_plot <- grid.arrange(my_plot, top = textGrob("Reliability Diagram",
-                                                gp = gpar(fontsize = title_size)))
-file_path <- file.path(fpath, "Fig_RelDiag-manipulated.pdf")
+my_plot <- plot_rel(l_results$reliability, l_results$scores, daily = daily, use_ecdf = T)
+file_path <- file.path(fpath, "Fig6_RelDiag-manipulated.pdf")
 ggsave(file_path, width = 140, height = 125, unit = "mm", plot = my_plot)
 
 my_plot <- plot_score_components(l_results$scores, daily = daily)
-file_path <- file.path(fpath, "Fig_MCB-DSC-manipulated-new.pdf")
+file_path <- file.path(fpath, "Fig7_MCB-DSC-manipulated.pdf")
 ggsave(file_path, width = 140, height = 80, unit = "mm", plot = my_plot)
 
 

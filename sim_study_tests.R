@@ -18,7 +18,7 @@ s_quad <- function(X, Y) {
   return((X - Y)^2)
 }
 
-fpath <- "./figures8"
+fpath <- "./figures9"
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
 my_theme <- list(
@@ -55,7 +55,7 @@ csep_test <- function(fcst1, fcst2, y, scf) {
 }
 
 dm_test <- function(fcst1, fcst2, y, scf) {
-  diff_scores <- rowSums(scf(fcst1, y) - scf(fcst2, y))
+  diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
   mean_diff_score <- mean(diff_scores)
 
   auto_covs <- acf(diff_scores, lag.max = 7, type = "covariance", plot = F)$acf
@@ -155,15 +155,10 @@ res_dm_quad <- cmp_run_sim(dm_test, s_quad, B = 400)
 
 res_csep <- cmp_run_sim(csep_test, s_pois, B = 400)
 
-plot_data <- rbind(
-  cbind(res_dm_pois, Type = "Poisson"), cbind(res_dm_quad, Type = "Quadratic")
-)
+plot_data <- res_dm_pois
 my_plot <- plot_results(plot_data)
-finish <- grid.arrange(my_plot,
-                       top = textGrob("Diebold-Mariano Tests",
-                                      gp = gpar(fontsize = title_size)))
 
-file_path <- file.path(fpath, "Fig_DieboldMariano.pdf")
-ggsave(file_path, width = 140, height = 60, unit = "mm", plot = finish)
+file_path <- file.path(fpath, "Fig5_sim-DieboldMariano.pdf")
+ggsave(file_path, width = 140, height = 60, unit = "mm", plot = my_plot)
 
 write.csv(plot_data, file.path(fpath, "simstudy_tests2_400.csv"))
