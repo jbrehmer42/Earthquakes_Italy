@@ -926,7 +926,7 @@ murphy_score_cmps <- ggplot(df_plot) +
   xlab(expression(paste("log", (theta)))) +
   ylab(NULL) +
   my_theme +
-  annotate("text", x = -Inf, y = 0.12, label = "Average score", angle = 90, vjust = 2) +
+  annotate("text", x = -Inf, y = 0.12, label = "Total score", angle = 90, vjust = 2) +
   annotate("text", x = Inf, y = ifelse(daily, -0.05, -0.12), label = "DSC", angle = -90,
            vjust = 2) +
   annotate("text", x = Inf, y = ifelse(daily, 0.06,0.09), label = "MCB", angle = -90, vjust = 2) +
@@ -936,7 +936,7 @@ combine <- grid.arrange(murphy_score_cmps, nrow = 1,
                         top = textGrob("Score Components by Elementary Score",
                                        gp = gpar(fontsize = title_size)))
 
-file_path <- file.path(fpath, "Fig9_Murphy-MCB-DSC.pdf")
+file_path <- file.path(fpath, "Fig_Murphy-MCB-DSC.pdf")
 ggsave(file_path, width = 145, height = 110, unit = "mm", plot = combine)
 
 # coherence checks:
@@ -1105,7 +1105,7 @@ get_score_cmp_plot_2 <- function(results, non_sig_seg, daily = F) {
     scale_y_continuous(limits = c(plot_min_dsc, plot_max_dsc), breaks = ybreaks, labels = ylabels,
                        expand = c(0, 0), name = NULL,
                        sec.axis = sec_axis(~., name = NULL, breaks = y2breaks, labels = y2labels)) +
-    annotate("label", x = Inf, y = -Inf, label = paste0("UNC = ", sprintf(fmt, unc)),
+    annotate("label", x = Inf, y = -Inf, label = paste0("UNC = ", sprintf("%.3f", unc)),
              hjust = 1.05, vjust = -0.2) +
     my_theme +
     theme(aspect.ratio = 1, legend.position = "none",
@@ -1269,16 +1269,16 @@ non_sig_seg_pois <- get_non_sig_connections(filter(df_score_cmp, Scoring == "poi
 
 df_score_cmp <- read.csv("./figures8/score-cmps.csv")
 non_sig_seg_pois <- read.csv("./figures8/score-cmps_seg-pois.csv")
-pl_pois <- get_score_cmp_plot_3(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois)
+pl_pois <- get_score_cmp_plot_2(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois)
 
 non_sig_seg_pois <- read.csv("./figures9/df_score-cmps_seg-pois-daily.csv")
-pl_pois_daily <- get_score_cmp_plot_3(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois, daily = T)
+pl_pois_daily <- get_score_cmp_plot_2(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois, daily = T)
 
 my_plot <- grid.arrange(pl_pois, pl_pois_daily, nrow = 1,
                         bottom = textGrob("MCB", gp = gpar(fontsize = 11)),
                         left = textGrob("DSC", rot = 90, gp = gpar(fontsize = 11)))
 
-file_path <- file.path(fpath, "Fig9_MCB-DSC-plot-2.pdf")
+file_path <- file.path(fpath, "Fig9_MCB-DSC-plot.pdf")
 ggsave(file_path, width = 145, height = 80, unit = "mm", plot = my_plot)
 
 rm(my_plot, pl_pois, pl_pois_daily, df_score_cmp)
@@ -1456,33 +1456,33 @@ add_name <- "_daily-ecdf"
 d <- 10^9
 my_trans <- function(x) sign(x) * log(abs(x) * d  + 1)
 # position of inset histograms
-xmin <- 13.8
-xmax <- 20
+xmin <- 14
+xmax <- 22
 ymin <- 0.0
 ymax <- 6.9
 # axis breaks and labels
 breaks <- c(0, 10^c(-8, -6, -4, -2, 0))
 t_breaks <- my_trans(breaks)
-labels <- rep("", length(breaks))
+labels <- c("0", rep("", length(breaks) - 2), "1")
 # position of score components
-text_x <- 0.02
-text_y <- 15
+text_x <- 0.1
+text_y <- 14.4
 # add to name
 add_name <- "_log"
 
 # 3 - use no / standard transform ----------------------------------------------
 my_trans <- function(x) x
 # position of inset histograms
-xmin <- 0.2
-xmax <- 1.0
+xmin <- 1.4
+xmax <- 2.2
 ymin <- 0.05
 ymax <- 0.7
 # axis breaks and labels
 t_breaks <- seq(0, 2, length.out = 6)
 labels <- c("0", rep("", length(breaks) - 2), 2)
 # position of score components
-text_x <- -1
-text_y <- 0.6
+text_x <- 1.3
+text_y <- 1.4
 # add to name
 add_name <- "_std"
 # cut confidence band at plot max
@@ -1591,6 +1591,7 @@ combine <- grid.arrange(create_row(rows[[1]], top = T) +
                           inset_histograms[which(model_names %in% rows[[1]])],
                         create_row(rows[[2]], top = F) +
                           inset_histograms[which(model_names %in% rows[[2]])],
+                        heights = c(1, 1),
                         bottom = textGrob("Forecasted mean",
                                        gp = gpar(fontsize = 11)),
                         left = textGrob("Conditional mean", rot = 90,
@@ -1624,7 +1625,7 @@ finish <- ggplot() +
         plot.margin = margin(0, 0, 0, 0))
 
 file_path <- file.path(fpath, paste0("Fig8_ReliabilityDiagram", add_name, ".pdf"))
-ggsave(file_path, width = 145, height = 125, unit = "mm", plot = finish)
+ggsave(file_path, width = 145, height = 115, unit = "mm", plot = finish)
 
 rm(col_ecdfs, recal_models, collect_stats, combine, finish, small_hist,
    inset_histograms, mean_ecdf, my_hist)

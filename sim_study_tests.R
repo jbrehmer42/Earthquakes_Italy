@@ -58,7 +58,7 @@ dm_test <- function(fcst1, fcst2, y, scf) {
   diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
   mean_diff_score <- mean(diff_scores)
 
-  auto_covs <- acf(diff_scores, lag.max = 7, type = "covariance", plot = F)$acf
+  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
   dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
 
   test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
@@ -134,15 +134,22 @@ analyze_autocorrelation_fcn <- function(B = 10, s_func = s_pois) {
 plot_results <- function(df) {
   bins <- seq(0, 1, length.out = 20 + 1)
 
-  ggplot(df) +
-  #  facet_grid(Type~cmp) +
+  new_cmp <- c("MixA vs. MixB" = "MixA vs. MixB", "LM vs. MixA" = "MixA vs. LM",
+               "LM vs. MixB" = "MixB vs. LM")
+  ord <- c("MixA vs. MixB", "MixA vs. LM", "MixB vs. LM")
+
+  df %>%
+    mutate(cmp = factor(new_cmp[cmp], ordered = T, levels = ord)) %>%
+    ggplot() +
+    #  facet_grid(Type~cmp) +
     facet_wrap(~cmp) +
     geom_histogram(aes(x = pval, y = ..density..), breaks = bins) +
     geom_vline(xintercept = c(0.05, 0.95), color = "#f8766d", linetype = "dashed",
                size = 0.3) +
     scale_x_continuous(breaks = 0:4 / 4, labels = c("0", "0.25", "0.5", "0.75", "1")) +
-    xlab("p value") +
-    ylab("") +
+    scale_y_continuous(breaks = NULL, labels = NULL, minor_breaks = (0:8) * 2.5) +
+    xlab(NULL) +
+    ylab(NULL) +
     ggtitle(NULL) +
     my_theme +
     theme(strip.background = element_blank())
@@ -150,15 +157,18 @@ plot_results <- function(df) {
 
 cmp_run_sim <- compiler::cmpfun(sim_tests)
 
-res_dm_pois <- cmp_run_sim(dm_test, s_pois, B = 400)
-res_dm_quad <- cmp_run_sim(dm_test, s_quad, B = 400)
 
+res_dm_pois <- cmp_run_sim(dm_test, s_pois, B = 400)
+file_path <- file.path(fpath, "Fig5_sim-DieboldMariano.pdf")
+# res_dm_quad <- cmp_run_sim(dm_test, s_quad, B = 400)
 res_csep <- cmp_run_sim(csep_test, s_pois, B = 400)
+file_path <- file.path(fpath, "Fig_CSEP-t-Test.pdf")
 
 plot_data <- res_dm_pois
 my_plot <- plot_results(plot_data)
 
-file_path <- file.path(fpath, "Fig5_sim-DieboldMariano.pdf")
-ggsave(file_path, width = 140, height = 60, unit = "mm", plot = my_plot)
+ggsave(file_path, width = 140, height = 50, unit = "mm", plot = my_plot)
 
 write.csv(plot_data, file.path(fpath, "simstudy_tests2_400.csv"))
+
+rm(cmp_run_sim, plot_data, my_plot)

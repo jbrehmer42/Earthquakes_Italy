@@ -37,6 +37,15 @@ s_pois <- function(X, y) {
   return(sum(score) / n_days)
 }
 
+s_pois_gen <- function(X, y) {
+  zero_fcst <- X == 0
+  impossible_fcst <- (X == 0) & (y != 0)
+  score <- -y * log(X) + X
+  score[zero_fcst] <- 0
+  score[impossible_fcst] <- Inf
+  return(score)
+}
+
 scf_list <- list(quad = s_quad, pois = s_pois)
 
 get_forecaster <- function(fcst, daily = F) {
@@ -56,9 +65,8 @@ get_forecaster <- function(fcst, daily = F) {
     x <- x
   } else if (fcst == "lm_rc") {
     ord <- order(x, y, decreasing = c(FALSE, TRUE))
-    y <- y[ord]
-    x_rc <- monotone(y)
-    x <- x_rc
+    x_rc <- monotone(y[ord])
+    x <- x_rc[order(ord)]     # restore original sorting
   } else if (fcst == "lm_x5") {
     x <- 4 * x
   } else if (fcst == "lm_x0_2") {
@@ -192,7 +200,7 @@ sort_forecasts <- function(fcsts) {
   ))
 }
 
-get_score_cmp_plot <- function(results, daily = F) {
+get_score_cmp_plot <- function(results, non_sig_seg, daily = F) {
   scores_wide <- results %>%
     filter(is.finite(value)) %>%
     pivot_wider(id_cols = c(fcst, Scoring), names_from = Type, values_from = value) %>%
@@ -216,7 +224,7 @@ get_score_cmp_plot <- function(results, daily = F) {
   iso <- data.frame(
     intercept = seq(-max(scores_wide$MCB, na.rm = T), max(scores_wide$DSC, na.rm = T),
                     length.out = 10)) %>%
-    mutate(label = sprintf(fmt ,unc - intercept))    # miscalibration is 0, intercept corresponds to DSC
+    mutate(label = sprintf(fmt, unc - intercept))    # miscalibration is 0, intercept corresponds to DSC
 
 
   mcb_range <- range(scores_wide$MCB)
@@ -231,6 +239,8 @@ get_score_cmp_plot <- function(results, daily = F) {
     geom_labelabline(data = iso, aes(intercept = intercept, slope = 1.0, label = label),
                      color = "gray50", hjust = my_hjust, size = 7 * 0.36, text_only = TRUE,
                      boxcolour = NA, straight = TRUE) +
+    geom_segment(data = non_sig_seg, mapping = aes(x = x, y = y, xend = xend, yend = yend),
+                 linetype = "dotted", alpha = 0.5, size = 0.5) +
     geom_point(aes(x = MCB, y = DSC, color = fcst), size = 1.5) +
     geom_text(aes(x = MCB, y = DSC, label = change_names(fcst), hjust = hjusts, vjust = vjusts,
                   color = fcst),
@@ -239,7 +249,7 @@ get_score_cmp_plot <- function(results, daily = F) {
     coord_cartesian(xlim = mcb_range + c(0, 1) / 10 * diff(mcb_range),
                     ylim = dsc_range + c(-3, 1) / 10 * diff(dsc_range),
                     expand = F) +
-    annotate("label", x = Inf, y = -Inf, label = paste0("UNC = ", sprintf(fmt, unc)),
+    annotate("label", x = Inf, y = -Inf, label = paste0("UNC = ", sprintf("%.3f", unc)),
              hjust = 1.05, vjust = -0.2) +
     my_theme +
     theme(aspect.ratio = 1, legend.position = "none", axis.text.x = element_blank(),
@@ -249,8 +259,59 @@ get_score_cmp_plot <- function(results, daily = F) {
   return(pl)
 }
 
-plot_score_components <- function(results, daily = F) {
-  pl_pois <- get_score_cmp_plot(filter(results, Scoring == "pois"), daily = daily)
+dm_test <- function(fcst1, fcst2, y, scf, daily = F) {
+  if (daily) {
+    diff_scores <- scf(fcst2, y) - scf(fcst1, y)
+  } else {
+    diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
+  }
+  mean_diff_score <- mean(diff_scores)
+
+  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
+  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
+
+  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
+  pval <- 1 - pnorm(test_stat)
+
+  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
+                    mean_diff = mean_diff_score))
+}
+
+get_non_sig_connections <- function(df_score_cmp, level = 0.1, daily = F) {
+  non_sig_con <- data.frame()
+  fcsts <- unique(df_score_cmp$fcst)
+
+  for (i in 1:(length(fcsts) - 1)) {
+    t <- get_forecaster(fcsts[i], daily = daily)
+    obs <- t$y
+    model1 <- t$x
+    for (j in ((i + 1):length(fcsts))) {
+      model2 <- get_forecaster(fcsts[j], daily = daily)$x
+
+      if (!daily) {
+        obs <- matrix(obs, nrow = n_days)
+        model1 <- matrix(model1, nrow = n_days)
+        model2 <- matrix(model2, nrow = n_days)
+      }
+
+      p <- dm_test(model1, model2, obs, s_pois_gen, daily = daily)$pval
+      if ((p > level / 2) & (p < 1 - level / 2)) {
+        non_sig_con <- rbind(
+          non_sig_con,
+          data.frame(x = filter(df_score_cmp, fcst == fcsts[i], Type == "MCB")$value,
+                     y = filter(df_score_cmp, fcst == fcsts[i], Type == "DSC")$value,
+                     xend = filter(df_score_cmp, fcst == fcsts[j], Type == "MCB")$value,
+                     yend = filter(df_score_cmp, fcst == fcsts[j], Type == "DSC")$value)
+        )
+      }
+    }
+  }
+  return(non_sig_con)
+}
+
+plot_score_components <- function(results, nonsig_seg, daily = F) {
+  pois_results <- filter(results, Scoring == "pois")
+  pl_pois <- get_score_cmp_plot(pois_results, nonsig_seg, daily = daily)
   return(pl_pois)
 }
 
@@ -423,11 +484,12 @@ ggsave(paste0("./../test/sim_study3/sim_", add, "_murphy.pdf"),
        width = 220, height = 110, unit = "mm", plot = my_plot)
 
 my_plot <- plot_rel(l_results$reliability, l_results$scores, daily = daily, use_ecdf = T)
-file_path <- file.path(fpath, "Fig6_RelDiag-manipulated.pdf")
+file_path <- file.path(fpath, "Fig6_RelDiag-manipulated_log.pdf")
 ggsave(file_path, width = 140, height = 125, unit = "mm", plot = my_plot)
 
-my_plot <- plot_score_components(l_results$scores, daily = daily)
-file_path <- file.path(fpath, "Fig7_MCB-DSC-manipulated.pdf")
+non_sig_seg <- get_non_sig_connections(filter(l_results$scores$Scoring == "pois"))
+my_plot <- plot_score_components(l_results$scores, non_sig_seg, daily = daily)
+file_path <- file.path(fpath, "Fig7_MCB-DSC-manipulated-seg.pdf")
 ggsave(file_path, width = 140, height = 80, unit = "mm", plot = my_plot)
 
 
