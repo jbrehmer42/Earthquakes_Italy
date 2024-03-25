@@ -50,15 +50,13 @@ scf_list <- list(quad = s_quad, pois = s_pois)
 
 get_forecaster <- function(fcst, daily = F) {
   if (!daily) {
-    discretize <- 10^(-8:0)
     y <- as.vector(obs)
     x <- as.vector(models[[1]])
-    x_sep <- median(x)
+    discretize <- quantile(x, probs = c(0, 0.1, 0.4, 0.5, 0.6, 0.9, 1))
   } else {
     discretize <- 10^((-2:2) / 2)
     y <- rowSums(obs)
     x <- rowSums(models[[1]])
-    x_sep <- 1
   }
 
   if (fcst == "lm") {
@@ -76,16 +74,9 @@ get_forecaster <- function(fcst, daily = F) {
   } else if (fcst == "lm_downed") {
     x <- discretize[sapply(x, function(a) sum(a >= discretize))]
   } else if (fcst == "lm_overconf") {
-    discretize <- sort(c(discretize, x_sep))
-    upped <- discretize[sapply(x, function(a) sum(a > discretize) + 1)]
-    downed <- discretize[sapply(x, function(a) sum(a >= discretize))]
-    x <- ifelse(x > x_sep, upped, downed)
+    x <- ifelse(x > 1e-5, 4 * x, 0.25 * x)
   } else if (fcst == "lm_underconf") {
-    # we need to add x_sep to avoid that this transformation is not increasing
-    discretize <- sort(c(discretize, x_sep))
-    upped <- discretize[sapply(x, function(a) sum(a > discretize) + 1)]
-    downed <- discretize[sapply(x, function(a) sum(a >= discretize))]
-    x <- ifelse(x > x_sep, downed, upped)
+    x <- ifelse(x > 4e-5, 0.25 * x, ifelse(x < 0.25 * 1e-5, 4 * x, 1e-5))
   }
   return(data.frame(y = y, x = x))
 }
@@ -329,8 +320,9 @@ make_groups <- function(df) {
 
 get_score_display <- function(df_scores) {
   # first coordinate: upper left, second coordinate: lower right
-  text_x <- c(0.02, 0.72)
-  text_y <- c(0.72, 0.02)
+  text_x <- c(0.02, 0.68)
+  text_y <- c(0.68, 0.02)
+  push <- 0.04
 
   df_stats <- df_scores %>%
     filter(Scoring == "pois") %>%
@@ -342,9 +334,10 @@ get_score_display <- function(df_scores) {
 
   df_groups <- rbind(
     filter(df_stats, fcst %in% c("lm", "lm_rc")) %>% mutate(I = "A", x = rev(text_x), y = rev(text_y)),
-    filter(df_stats, fcst %in% c("lm_x5", "lm_x0_2")) %>% mutate(I = "B", x = text_x, y = text_y),
+    filter(df_stats, fcst %in% c("lm_x5", "lm_x0_2")) %>% mutate(I = "B", x = text_x + c(0, push),
+                                                                 y = text_y + c(push, 0)),
     filter(df_stats, fcst %in% c("lm_upped", "lm_downed")) %>% mutate(I = "C", x = text_x, y = text_y),
-    filter(df_stats, fcst %in% c("lm_overconf", "lm_underconf")) %>% mutate(I = "D", x = text_x, y = text_y)
+    filter(df_stats, fcst %in% c("lm_overconf", "lm_underconf")) %>% mutate(I = "D", x = rev(text_x), y = rev(text_y))
   ) %>%
     mutate(fcst = sort_forecasts(fcst))
   return(df_groups)
@@ -382,9 +375,13 @@ get_ecdf_trans <- function(daily = FALSE) {
 }
 
 plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
-  plot_data <- make_groups(reliability)
+  pick_panels <- c("A", "B", "D")
+  n_rows <- 1
+  plot_colors <- scales::hue_pal()(8)[1:6]
+  plot_data <- make_groups(reliability) %>%
+    filter(I %in% pick_panels)
 
-  use_points <- c("lm_upped", "lm_downed", "lm_underconf", "lm_overconf")
+  use_points <- c("lm_upped", "lm_downed", "lm_rc")
   df_points <- filter(plot_data, fcst %in% use_points)
   df_segments <- filter(plot_data, !(fcst %in% use_points)) %>%
     group_by(fcst, I) %>%
@@ -394,12 +391,13 @@ plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
         pivot_wider(id_cols = "x_rc", names_from = "x_pos", values_from = "x", values_fill = NA) %>%
         filter(!is.na(x0), !is.na(x1))    # if there is one missing, throw it out
     }, .keep = T)
-  df_scores <- get_score_display(score_cmps)
+  df_scores <- get_score_display(score_cmps) %>%
+    filter(I %in% pick_panels)
 
   if (use_ecdf) {
     my_trans <- get_ecdf_trans(daily = daily)
     my_breaks <- c(0, 10^c(-7, -6, -5, -4, 0))
-    my_labels <- c("0", rep("", length(my_breaks) - 2), "1")
+    my_labels <- rep("", length(my_breaks))
   } else {
     if (daily) {
       my_trans <- function(x) log(x, base = 10)
@@ -415,9 +413,9 @@ plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
   my_breaks <- my_trans(my_breaks)
 
   my_plot <- ggplot(plot_data) +
-    facet_wrap(~I, nrow = 2) +
+    facet_wrap(~I, nrow = n_rows) +
     geom_abline(intercept = 0 , slope = 1, colour = "grey70", size = 0.3,
-                  linetype = "dashed") +
+                linetype = "dashed") +
     geom_line(aes(x = my_trans(x), y = my_trans(x_rc), color = fcst), size = 0.3) +
     geom_point(data = df_points,
                aes(x = my_trans(x), y = my_trans(x_rc), color = fcst), size = 1) +
@@ -425,13 +423,13 @@ plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
                  aes(x = my_trans(x0), xend = my_trans(x1), y = my_trans(x_rc),
                      yend = my_trans(x_rc), color = fcst), size = 0.7) +
     geom_text(data = df_scores, mapping = aes(x = x, y = y, label = label, color = fcst),
-              size = 6 * 0.36, hjust = 0, vjust = 0) +
-    xlab("Forecasted mean") +
+              size = 6 * 0.36, hjust = 0, vjust = 0, show.legend = F) +
+    xlab("Forecast value") +
     scale_x_continuous(breaks = my_breaks, labels = my_labels) +
     scale_y_continuous(breaks = my_breaks, labels = my_labels) +
     ylab("Conditional mean") +
-    scale_color_discrete(name = NULL, labels = change_names(),
-                         guide = guide_legend(nrow = 2)) +
+    scale_color_manual(name = NULL, labels = change_names(), values = plot_colors,
+                       guide = guide_legend(nrow = 1)) +
     my_theme +
     theme(strip.text = element_blank(), legend.position = "bottom",
           aspect.ratio = 1, panel.grid.major = element_blank(),
@@ -479,13 +477,9 @@ l_results <- cmp_run_sim(daily = daily)
 
 add <- "new7"
 
-my_plot <- plot_murphy(l_results$murphy)
-ggsave(paste0("./../test/sim_study3/sim_", add, "_murphy.pdf"),
-       width = 220, height = 110, unit = "mm", plot = my_plot)
-
 my_plot <- plot_rel(l_results$reliability, l_results$scores, daily = daily, use_ecdf = T)
-file_path <- file.path(fpath, "Fig6_RelDiag-manipulated_log.pdf")
-ggsave(file_path, width = 140, height = 125, unit = "mm", plot = my_plot)
+file_path <- file.path(fpath, "Fig6_RelDiag-manipulated.pdf")
+ggsave(file_path, width = 140, height = 68, unit = "mm", plot = my_plot)
 
 non_sig_seg <- get_non_sig_connections(filter(l_results$scores$Scoring == "pois"))
 my_plot <- plot_score_components(l_results$scores, non_sig_seg, daily = daily)

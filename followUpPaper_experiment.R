@@ -231,7 +231,7 @@ temp_plot <- pred_by_day %>%
                      guide = guide_legend(order = 1)) +
   scale_shape_manual(name = NULL, values = c("Observed earthquakes" = 1)) +
   xlab(NULL) +
-  ylab("Expected number") +
+  ylab("Forecast value") +
   labs(subtitle = "Entire CSEP Italy region") +
   annotate(geom = "text", label = "*", x = i_time, y = 0.14, size = 5,
            color = "black") +
@@ -274,7 +274,7 @@ create_row <- function(row, only_legend = F, top = F) {
     scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
     scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
     scale_size(range = new_range, trans = size_trans) +
-    scale_fill_viridis_c(name = "Expected\nnumber",
+    scale_fill_viridis_c(name = "Forecast\nvalue",
                         breaks = 10^(c(-9, -7, -5, -3)), limits = cb_limits,
                         labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
                         trans = "log10", option = "magma", direction = -1,
@@ -394,7 +394,7 @@ for (i in 1:length(models)) {
   # we can do it like that, since LM is the first score we calculate in the loop
   t_sum[i, "Pois-diff"] <- t_sum[i, "Poisson"] - t_sum["LM", "Poisson"]
   t_sum[i, "IG"] <- sum(inf_gain(models[[which(model_names == "LM")]], models[[i]], obs))
-  t_sum[i, "IGPE"] <- cum_igpe(models[[which(model_names == "LM")]], models[[i]], obs)[n_days]
+  t_sum[i, "IGPE"] <- cum_igpe(models[[which(model_names == cmp_model)]], models[[i]], obs)[n_days]
 }
 t_sum
 write.csv(t_sum, file.path(fpath, "Tab2_scores_inf.csv"))
@@ -419,7 +419,7 @@ csep_test <- function(fcst1, fcst2, y, scf) {
   N <- sum(y)
   diff_logs <- log(fcst1) - log(fcst2)
   I_N_ij <- sum(y * diff_logs) / N - (sum(fcst1) - sum(fcst2)) / N
-  test_var <- 1 / (N - 1) * sum((diff_logs - mean(diff_logs))^2)
+  test_var <- 1 / (N - 1) * sum(y * diff_logs^2) - 1 / (N^2 - N) * sum(y * diff_logs)^2
 
   test_stat <- I_N_ij / sqrt(test_var) * sqrt(N)
   pval <- 1 - pt(test_stat, N - 1)
@@ -444,21 +444,21 @@ filter_days <- rep(T, n_days)
 # 1. DM with Poisson -----------------------------------------------------------
 test_func <- dm_test
 scf_func <- s_pois
-divide <- n_days
+diag_func <- s_pois_da
 name <- "dm_pois"
 n_digits <- 2
 model_order <- c(5, 1, 4, 2, 3)
 # 2. DM with Quadratic ---------------------------------------------------------
 test_func <- dm_test
 scf_func <- s_quad
-divide <- n_days
+diag_func <- s_quad_da
 name <- "dm_quad"
 n_digits <- 3
 model_order <- c(1, 5, 4, 2, 3)
 # 3. CSEP T-test ---------------------------------------------------------------
 test_func <- csep_test
-scf_func <- s_pois
-divide <- sum(obs)
+scf_func <- NULL
+diag_func <- function(x, y) cum_igpe(models[[which(model_names == cmp_model)]][filter_days,], x, y)[sum(filter_days)]
 name <- "csep"
 n_digits <- 3
 model_order <- c(5, 1, 4, 2, 3)
@@ -466,26 +466,33 @@ model_order <- c(5, 1, 4, 2, 3)
 filt_day <- "Mo"
 filter_days <- (lubridate::wday(times, label = T) == filt_day)
 name <- paste0("csep_", filt_day)
-divide <- sum(obs[filter_days, ])
 # ------------------------------------------------------------------------------
 
-sum_scores <- sapply(models, function(x) sum(scf_func(x[filter_days,], obs[filter_days,])))
 val_matrix <- matrix(0.0, nrow = length(models), ncol = length(models),
                      dimnames = list(model_names[model_order], model_names[model_order]))
+sds <- matrix(0.0, nrow = length(models), ncol = length(models))
+mean_diffs <- matrix(0.0, nrow = length(models), ncol = length(models))
 
 for (i in 1:(length(model_order) - 1)) {
   # diagonal corresponds to Poisson score
-  val_matrix[i, i] <- sum_scores[model_order[i]] / divide
+  val_matrix[i, i] <- diag_func(models[[model_order[i]]][filter_days,], obs[filter_days,])
 
   for (j in (i + 1):length(model_order)) {
-    test_vals <- test_func(models[[model_order[i]]][filter_days,], models[[model_order[j]]][filter_days,], obs[filter_days,],
-                           scf_func)
+    test_vals <- test_func(models[[model_order[i]]][filter_days,], models[[model_order[j]]][filter_days,],
+                           obs[filter_days,], scf_func)
 
     val_matrix[j, i] <- test_vals$pval
     val_matrix[i, j] <- test_vals$zval
+    sds[i, j] <- test_vals$sd
+    mean_diffs[i, j] <- test_vals$mean_diff
   }
 }
-val_matrix[length(models), length(models)] <- sum_scores[model_order[length(models)]] / divide
+val_matrix[length(models), length(models)] <- diag_func(models[[model_order[length(models)]]][filter_days,],
+                                                        obs[filter_days,])
+
+write.csv2(val_matrix, file.path("./../test/filter_weekday", paste0(name, ".csv")))
+write.csv2(sds, file.path("./../test/filter_weekday", paste0(name, "_sds.csv")))
+write.csv2(mean_diffs, file.path("./../test/filter_weekday", paste0(name, "_mdiff.csv")))
 
 write.csv(val_matrix, file.path(fpath, paste0("tests_", name, ".csv")))
 
@@ -527,12 +534,8 @@ acf_plot <- ggplot(acf_data) +
   ylab("Auto-covariance") +
   my_theme
 
-finish <- grid.arrange(acf_plot,
-                       top = textGrob("ACF of Poisson score Difference",
-                                      gp = gpar(fontsize = title_size)))
-
 file_path <- file.path(fpath, "Fig_DM-acf-values.pdf")
-ggsave(file_path, width = 140, height = 160, unit = "mm", plot = finish)
+ggsave(file_path, width = 140, height = 160, unit = "mm", plot = acf_plot)
 
 ################################################################################
 # Visualize Poisson score (differences) temporally
@@ -593,7 +596,7 @@ score_plot <- ggplot() +
 
 # score differences ------------------------------------------------------------
 diff_scores <- scores %>%
-  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  mutate(across(all_of(ana_models), function(v) v - !!cmp_m)) %>%
   select(X, earthquake, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
 
@@ -684,8 +687,15 @@ combine_plots <- grid.arrange(aligned[[1]], aligned[[2]], aligned[[3]], aligned[
 file_path <- file.path(fpath, "Fig4_score-and-info.pdf")
 ggsave(file_path, width = 140, height = 170, unit = "mm", plot = combine_plots)
 
+# check consistency
+# 1) df_cum = cumsum(score_diffs)
+t1 <- apply(pivot_wider(diff_scores, id_cols = X, names_from = Model, values_from = value)[, ana_models], 2, cumsum)
+print(sum(abs(t1 - df_cum[, ana_models])))
+# 2) df_cum_pe = df_cum / N_t   (remove first row, since we divide by zero there)
+print(sum(abs(df_cum[-1, ana_models] / cumsum(rowSums(obs))[-1] - df_cum_pe[-1, ana_models])))
+
 rm(scores, scores_long, diff_scores, combine_plots, score_plot, score_diff_plot, my_trans,
-   df_cum, df_cum_pe, cum_inf_plot, cum_inf_pe_plot, aligned)
+   df_cum, df_cum_pe, cum_inf_plot, cum_inf_pe_plot, aligned, t1)
 
 ################################################################################
 # Visualize Poisson score differences spatially
@@ -703,8 +713,8 @@ add_title <- "Poisson"
 # transformation for difference plot
 d <- 10^5
 my_trans <- function(x) sign(x) * log(abs(x) * d  + 1)
-my_breaks <- c(-0.01, -0.001, -0.0001, 0, 0.0001, 0.001)
-my_labels <- expression(-10^-2, "", -10^-4, 0, 10^-4, "")
+my_breaks <- c(-0.001, -0.0001, 0, 0.0001, 0.001, 0.01)
+my_labels <- expression("", -10^-4, 0, 10^-4, "", 10^-2)
 
 # 2 - Quadratic score ------------------------------------------------------------
 scf <- s_quad
@@ -723,16 +733,16 @@ scores <- data.frame(scores)
 colnames(scores) <- model_names
 
 diff_scores <- scores %>%
-  mutate(across(all_of(ana_models), function(v) !!cmp_m - v)) %>%
+  mutate(across(all_of(ana_models), function(v) v - !!cmp_m)) %>%
   mutate(LON = cells$LON, LAT = cells$LAT) %>%
   select(LON, LAT, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
 diff_scores$Model <- factor(paste(cmp_model, "vs.", diff_scores$Model), ordered = T,
                             levels = paste(cmp_model, "vs.", names(model_colors)))
 
-my_colors <- c("#800303", "#f51818", "#ffffff", "#057ffa")
+my_colors <- c("#f51818", "#ffffff", "#057ffa", "#000058")
 limits <- my_trans(range(diff_scores$value))
-col_breaks <- c(limits[1], -limits[2], 0, limits[2])
+col_breaks <- c(limits[1], 0, -limits[1], limits[2])
 
 eq_loc <- events %>%
   group_by(N) %>%
@@ -926,15 +936,13 @@ murphy_score_cmps <- ggplot(df_plot) +
   xlab(expression(paste("log", (theta)))) +
   ylab(NULL) +
   my_theme +
-  annotate("text", x = -Inf, y = 0.12, label = "Total score", angle = 90, vjust = 2) +
+  annotate("text", x = -Inf, y = 0.17, label = "Elementary score", angle = 90, vjust = 2) +
   annotate("text", x = Inf, y = ifelse(daily, -0.05, -0.12), label = "DSC", angle = -90,
            vjust = 2) +
   annotate("text", x = Inf, y = ifelse(daily, 0.06,0.09), label = "MCB", angle = -90, vjust = 2) +
   theme(legend.position = c(0.01, 0.01), legend.justification = c(0, 0))
 
-combine <- grid.arrange(murphy_score_cmps, nrow = 1,
-                        top = textGrob("Score Components by Elementary Score",
-                                       gp = gpar(fontsize = title_size)))
+combine <- grid.arrange(murphy_score_cmps)
 
 file_path <- file.path(fpath, "Fig_Murphy-MCB-DSC.pdf")
 ggsave(file_path, width = 145, height = 110, unit = "mm", plot = combine)
@@ -976,7 +984,7 @@ dm_test <- function(fcst1, fcst2, y, scf, daily = F) {
                     mean_diff = mean_diff_score))
 }
 
-get_score_cmp_plot <- function(results, non_sig_seg, daily = F) {
+get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
   scores_wide <- results %>%
     filter(is.finite(value)) %>%
     pivot_wider(id_cols = c(Model, Scoring), names_from = Type, values_from = value) %>%
@@ -998,22 +1006,23 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F) {
                         vjusts = c(1.5, 1.5, 1.5, -1.0, 1.5))
   }
 
-  scf <- ifelse(pois_panel, s_pois_da, s_quad_da)
-  cmp_score <- ifelse(daily, scf(rowSums(models[[1]]), rowSums(obs)),
-                      scf(models[[1]], obs))
+  # scf <- ifelse(pois_panel, s_pois_da, s_quad_da)
+  # cmp_score <- ifelse(daily, scf(rowSums(models[[1]]), rowSums(obs)),
+  #                    scf(models[[1]], obs))
   iso <- data.frame(
     intercept = seq(min(scores_wide$DSC) - max(scores_wide$MCB, na.rm = T),
                     max(scores_wide$DSC, na.rm = T),
                     length.out = 10)) %>%
     mutate(score = unc - intercept,       # miscalibration is 0, intercept corresponds to DSC
            # irrespective of daily or not sum obs is the sum over all earthquakes
-           igpe = n_days / sum(obs) * (score - cmp_score),
-           label = paste(sprintf(fmt, score), "/", sprintf(fmt, igpe)))
+           # igpe = n_days / sum(obs) * (score - cmp_score),
+           label = paste(sprintf(fmt, score)))
 
   # mcb_range <- range(scores_wide$MCB)
   dsc_range <- range(scores_wide$DSC)
 
   pl <- left_join(scores_wide, justs, by = "Model") %>%
+    mutate(Scoring = top) %>%   # assume that there is just one label
     ggplot() +
     facet_wrap(~Scoring) +
     geom_abline(data = iso, aes(intercept = intercept, slope = 1.0), color = "lightgray",
@@ -1028,6 +1037,8 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F) {
               size = 8 * 0.36) +
     scale_color_manual(values = model_colors) +
     coord_cartesian(ylim = (c(dsc_range[1] - 0.1 * (dsc_range[2] - dsc_range[1]), NA))) +
+    xlab(NULL) +
+    ylab(NULL) +
     annotate("label", x = Inf, y = -Inf, label = paste0("UNC = ", sprintf(fmt, unc)),
              hjust = 1.05, vjust = -0.2) +
     my_theme +
@@ -1269,10 +1280,11 @@ non_sig_seg_pois <- get_non_sig_connections(filter(df_score_cmp, Scoring == "poi
 
 df_score_cmp <- read.csv("./figures8/score-cmps.csv")
 non_sig_seg_pois <- read.csv("./figures8/score-cmps_seg-pois.csv")
-pl_pois <- get_score_cmp_plot_2(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois)
+pl_pois <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois, top = "Total Score")
 
 non_sig_seg_pois <- read.csv("./figures9/df_score-cmps_seg-pois-daily.csv")
-pl_pois_daily <- get_score_cmp_plot_2(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois, daily = T)
+pl_pois_daily <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois, daily = T,
+                                    top = "Number Score")
 
 my_plot <- grid.arrange(pl_pois, pl_pois_daily, nrow = 1,
                         bottom = textGrob("MCB", gp = gpar(fontsize = 11)),
@@ -1437,9 +1449,9 @@ xmax <- 1.0
 ymin <- 0.0
 ymax <- 0.25
 # axis breaks and labels
-breaks <- c(0, 10^c(-7, -6, -5, -4, 0))
+breaks <- c(0, 10^c(-7, -6, -5, -4), 0.88)      # 0.88 is maximal forecast value
 t_breaks <- my_trans(breaks)
-labels <- c("0", rep("", length(breaks) - 2), "1")
+labels <- rep("", length(breaks))
 # position of score components
 text_x <- 0.02
 text_y <- 0.64
@@ -1449,7 +1461,7 @@ add_name <- ""
 # for daily ----------------------------------------
 breaks <- c(0, 0.2, 0.3, 0.4, 1)
 t_breaks <- my_trans(breaks)
-labels <- c("0", rep("", length(breaks) - 2), "1")
+labels <- rep("", length(breaks))
 add_name <- "_daily-ecdf"
 
 # 2 - use two sided log transform ----------------------------------------------
@@ -1592,7 +1604,7 @@ combine <- grid.arrange(create_row(rows[[1]], top = T) +
                         create_row(rows[[2]], top = F) +
                           inset_histograms[which(model_names %in% rows[[2]])],
                         heights = c(1, 1),
-                        bottom = textGrob("Forecasted mean",
+                        bottom = textGrob("Forecast value",
                                        gp = gpar(fontsize = 11)),
                         left = textGrob("Conditional mean", rot = 90,
                                        gp = gpar(fontsize = 11)))
@@ -1617,7 +1629,7 @@ finish <- ggplot() +
   annotation_custom(ggplotGrob(small_hist), xmin = 0.88, xmax = 0.96, ymin = 0.07, ymax = 0.15) +
   annotate("text", x = 0.92, y = 0.16, label = "Histogram",
            size = 7 * 0.36, lineheight = 0.7, color = "darkgray") +
-  annotate("text", x = 0.92, y = 0.06, label = "Forecasted\nmean",
+  annotate("text", x = 0.92, y = 0.06, label = "Forecast\nvalue",
            size = 7 * 0.36, lineheight = 0.7, color = "darkgray") +
   theme(axis.line = element_blank(), axis.text = element_blank(),
         axis.ticks = element_blank(), axis.title = element_blank(),
