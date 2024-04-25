@@ -125,9 +125,11 @@ filter_region <- function(events, cells) {
   cell_le <- cells$LON - 0.5 * size_LON
   cell_lo <- cells$LAT - 0.5 * size_LAT
   cell_up <- cells$LAT + 0.5 * size_LAT
+  # need tolerance due to floating point inaccuracies (some events lie exactly on boundary which is not catched)
+  tol <- 1e-9
   for (i in 1:n) {
-    isLON <- (cell_le < events$LON[i]) & (events$LON[i] <= cell_ri)
-    isLAT <- (cell_lo < events$LAT[i]) & (events$LAT[i] <= cell_up)
+    isLON <- (cell_le < events$LON[i]) & (events$LON[i] < cell_ri + tol)
+    isLAT <- (cell_lo < events$LAT[i]) & (events$LAT[i] < cell_up + tol)
     if (any(isLON & isLAT) ) {
       # Assign cell number inside testing region
       cell_number[i] <- cells$N[isLON & isLAT]

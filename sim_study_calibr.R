@@ -8,7 +8,7 @@ library(geomtextpath)     # for geom_labelabline
 library(data.table)
 # library(ggrepel)
 
-fpath <- "./figures9"
+fpath <- "./figures10"
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
@@ -306,7 +306,6 @@ plot_score_components <- function(results, nonsig_seg, daily = F) {
   return(pl_pois)
 }
 
-
 make_groups <- function(df) {
   df_groups <- rbind(
     filter(df, fcst %in% c("lm", "lm_rc")) %>% mutate(I = "A"),
@@ -322,7 +321,7 @@ get_score_display <- function(df_scores) {
   # first coordinate: upper left, second coordinate: lower right
   text_x <- c(0.02, 0.68)
   text_y <- c(0.68, 0.02)
-  push <- 0.04
+  push <- 0.03
 
   df_stats <- df_scores %>%
     filter(Scoring == "pois") %>%
@@ -397,7 +396,7 @@ plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
   if (use_ecdf) {
     my_trans <- get_ecdf_trans(daily = daily)
     my_breaks <- c(0, 10^c(-7, -6, -5, -4, 0))
-    my_labels <- rep("", length(my_breaks))
+    my_labels <- c("", expression(10^{-7}), "", expression(10^{-5}), expression(10^{-4}), "")
   } else {
     if (daily) {
       my_trans <- function(x) log(x, base = 10)
@@ -438,44 +437,12 @@ plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
   return(my_plot)
 }
 
-plot_murphy <- function(murphy) {
-  mcb_fac <- 5
-  df_plot <- make_groups(murphy) %>%
-    mutate(y = ifelse(Type == "DSC", y * (-1), y),
-           y = ifelse(Type == "MCB", y * mcb_fac, y))
-
-  my_plot <- ggplot(df_plot) +
-    facet_wrap(~I, nrow = 1, scales = "free_y") +
-    geom_hline(yintercept = 0.0, color = "black", size = 0.3) +
-    geom_line(aes(x = log_x, y = y, color = fcst, group = paste(fcst, Type)),
-              size = 0.3) +
-    scale_x_continuous(breaks = -4:1 * 5) +
-    scale_y_continuous(sec.axis = sec_axis(~./mcb_fac, name = NULL, breaks = c(-2:3) * 0.02)) +
-    scale_color_discrete(name = "Forecaster",
-                         guide = guide_legend(nrow = 1, title.position = "left")) +
-    xlab(expression(paste("Threshold log", (theta)))) +
-    ylab(NULL) +
-    ggtitle("Murphy Diagram") +
-    annotate("text", x = -Inf, y = 0.18, label = "Score", angle = 90, vjust = 2) +
-    annotate("text", x = -Inf, y = -0.15, label = "-DSC", angle = 90, vjust = 2) +
-    annotate("text", x = Inf, y = 0.06, label = "MCB", angle = -90, vjust = 2) +
-    theme_bw() +
-    theme(legend.position = "bottom", legend.key.size = unit(4, "mm"),
-          strip.background = element_blank(), strip.text = element_blank(),
-          panel.grid.major = element_line(size = 0.05),
-          panel.grid.minor = element_line(size = 0.05))
-
-  return(my_plot)
-}
-
 # Analysis ---------------------------------------------------------------------
 
 cmp_run_sim <- compiler::cmpfun(run_simulation_study)
 daily <- FALSE
 
 l_results <- cmp_run_sim(daily = daily)
-
-add <- "new7"
 
 my_plot <- plot_rel(l_results$reliability, l_results$scores, daily = daily, use_ecdf = T)
 file_path <- file.path(fpath, "Fig6_RelDiag-manipulated.pdf")
@@ -486,7 +453,5 @@ my_plot <- plot_score_components(l_results$scores, non_sig_seg, daily = daily)
 file_path <- file.path(fpath, "Fig7_MCB-DSC-manipulated-seg.pdf")
 ggsave(file_path, width = 140, height = 80, unit = "mm", plot = my_plot)
 
-
-write.csv(l_results$scores, paste0("./../test/sim_study3/results_", add, "_scores.csv"))
-write.csv(l_results$murphy, paste0("./../test/sim_study3/results_", add, "_murphy.csv"))
-write.csv(l_results$reliability, paste0("./../test/sim_study3/results_", add, "_rel.csv"))
+write.csv(l_results$scores, file.path(fpath, "simstudy-rel_scores.csv"))
+write.csv(l_results$reliability, file.path(fpath, "simstudy-rel_rel.csv"))

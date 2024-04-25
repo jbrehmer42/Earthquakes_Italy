@@ -1,10 +1,9 @@
 library(ggplot2)
 library(dplyr)
+library(tidyr)
 library(gridExtra)
 library(grid)
 library(lubridate)
-
-set.seed(111)
 
 s_pois <- function(X, Y) {
   zero_fcst <- X == 0
@@ -15,11 +14,7 @@ s_pois <- function(X, Y) {
   return(score)
 }
 
-s_quad <- function(X, Y) {
-  return((X - Y)^2)
-}
-
-fpath <- "./figures9"
+fpath <- "./figures10"
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 
 my_theme <- list(
@@ -35,16 +30,18 @@ my_theme <- list(
 
 ################################################################################
 
-mix_forecasts <- function(fcst1, fcst2) {
-  pick <- rbinom(length(fcst1), 1, 0.5)
-
-  return(list(
-    a = ifelse(pick == 1, fcst1, fcst2),
-    b = ifelse(pick == 0, fcst1, fcst2)
-  ))
+get_mix_forecasts <- function(fcst1, fcst2) {
+  pick <- rbinom(n_days, 1, 0.5)
+  a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  a[pick == 1, ] <- fcst1[pick == 1, ]
+  a[pick == 0, ] <- fcst2[pick == 0, ]
+  b <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  b[pick == 1, ] <- fcst2[pick == 1, ]
+  b[pick == 0, ] <- fcst1[pick == 0, ]
+  return(list(a = a, b = b))
 }
 
-csep_test <- function(fcst1, fcst2, y, scf) {
+csep_test <- function(fcst1, fcst2, y) {
   N <- sum(y)
   diff_logs <- log(fcst1) - log(fcst2)
   I_N_ij <- sum(y * diff_logs) / N - (sum(fcst1) - sum(fcst2)) / N
@@ -69,37 +66,35 @@ dm_test <- function(fcst1, fcst2, y, scf) {
                     mean_diff = mean_diff_score))
 }
 
-sim_tests <- function(test_fcn, scf_fcn, B = 100, weekday = NULL) {
+sim_tests <- function(B = 400, weekday = "Mo") {
   collect_results <- data.frame()
 
-  filter_days <- rep(T, n_days)
-  if (!is.null(weekday)) {
-    filter_days <- (lubridate::wday(times, label = T) == weekday)
-  }
+  filter_days <- (lubridate::wday(times, label = T) == weekday)
 
-  y <- obs[filter_days, ]
-  lm <- models[[which(model_names == "LM")]][filter_days, ]
-  mix1 <- as.vector(models[[which(model_names == "LG")]][filter_days, ])
-  mix2 <- as.vector(models[[which(model_names == "FCM")]][filter_days, ])
+  y <- obs
+  lm <- models[[which(model_names == "LM")]]
+  mix1 <- models[[which(model_names == "LG")]]
+  mix2 <- models[[which(model_names == "FCM")]]
   fcst_names <- c("LM", "MixA", "MixB")
 
   for (i in 1:B) {
     cat("*")
-    mixed_fcsts <- mix_forecasts(mix1, mix2)
-    fcst_data <- setNames(
-      list(lm, matrix(mixed_fcsts[[1]], nrow = nrow(y)), matrix(mixed_fcsts[[2]], nrow = nrow(y))),
-      fcst_names
-    )
+    mixed_fcsts <- get_mix_forecasts(mix1, mix2)
+
+    fcst_data <- setNames(list(lm, mixed_fcsts[[1]], mixed_fcsts[[2]]), fcst_names)
 
     for (fcst1 in 1:(length(fcst_names) - 1)) {
       for (fcst2 in (fcst1 + 1):length(fcst_names)) {
-        test_vals <- test_fcn(fcst_data[[fcst_names[fcst1]]],
-                              fcst_data[[fcst_names[fcst2]]],
-                              y,
-                              scf_fcn)
+        cmp_name <- paste(fcst_names[fcst1], "vs.", fcst_names[fcst2])
+        test_vals1 <- csep_test(fcst_data[[fcst_names[fcst1]]], fcst_data[[fcst_names[fcst2]]], y)
+        test_vals2 <- dm_test(fcst_data[[fcst_names[fcst1]]], fcst_data[[fcst_names[fcst2]]], y, s_pois)
+        test_vals3 <- csep_test(fcst_data[[fcst_names[fcst1]]][filter_days,],
+                                fcst_data[[fcst_names[fcst2]]][filter_days,], y[filter_days,])
         collect_results <- rbind(
           collect_results,
-          cbind(test_vals, I = i, cmp = paste(fcst_names[fcst1], "vs.", fcst_names[fcst2]))
+          cbind(test_vals1, I = i, cmp = cmp_name, t = "CSEP", m = "all"),
+          cbind(test_vals2, I = i, cmp = cmp_name, t = "DM", m = "all"),
+          cbind(test_vals3, I = i, cmp = cmp_name, t = "CSEP", m = "Mo")
         )
       }
     }
@@ -159,21 +154,82 @@ plot_results <- function(df) {
 
 cmp_run_sim <- compiler::cmpfun(sim_tests)
 
+set.seed(999)
+results <- cmp_run_sim(B = 400)
+write.csv(results, "./figures10/simstudy_tests_400_s999.csv")
 
-res_dm_pois <- cmp_run_sim(dm_test, s_pois, B = 400)
+my_plot <- plot_results(filter(results, t == "DM", m == "all"))
 file_path <- file.path(fpath, "Fig5_sim-DieboldMariano.pdf")
-# res_dm_quad <- cmp_run_sim(dm_test, s_quad, B = 400)
-res_csep <- cmp_run_sim(csep_test, NULL, B = 400)
-file_path <- file.path(fpath, "Fig_CSEP-t-Test-40.pdf")
-# just look at mondays
-res_csep_mo <- cmp_run_sim(csep_test, NULL, B = 400, weekday = "Di")
-file_path <- file.path(fpath, "Fig_CSEP-t-Test-Mo-40.pdf")
+ggsave(file_path, width = 140, height = 50, unit = "mm")
 
-plot_data <- res_dm_pois
-my_plot <- plot_results(plot_data)
+my_plot <- plot_results(filter(results, t == "CSEP", m == "all"))
+file_path <- file.path(fpath, "Fig_CSEP-t-Test.pdf")
+ggsave(file_path, width = 140, height = 50, unit = "mm")
 
-ggsave(file_path, width = 140, height = 50, unit = "mm", plot = my_plot)
+my_plot <- plot_results(filter(results, t == "CSEP", m == "Mo"))
+file_path <- file.path(fpath, "Fig_CSEP-t-Test-Mo.pdf")
+ggsave(file_path, width = 140, height = 50, unit = "mm")
 
-write.csv(plot_data, file.path(fpath, "simstudy_tests2_400.csv"))
+results %>%
+  filter(cmp == "MixA vs. MixB") %>%
+  group_by(t, m) %>%
+  summarise(A = sum(pval < 0.05, na.rm = T), B = sum(pval > 0.95, na.rm = T))
 
-rm(cmp_run_sim, plot_data, my_plot)
+
+# investigate CSEP : all vs. Mondays -----------------------------------------------------------------------------------
+new_names <- c("mean_diff" = "IGPE", "sd" = "standard dev.", "zval" = "z-statistic", "pval" = "p-value")
+filt <- "MixA vs. MixB"
+x1 <- c(-7, qt(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9), 259 - 1), 7)
+x2 <- c(-7, qt(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9), 1813 - 1), 7)
+n <- length(x1)
+pval_band <- data.frame(metric = factor("z-statistic", ordered = T, levels = unname(new_names)),
+                        ymin = -7.5, ymax = -7.25, min1 = x1[-n], max1 = x1[-1], min2 = x2[-n], max2 = x2[-1])
+results %>%
+  filter(t == "CSEP", cmp == filt) %>%
+  pivot_longer(cols = c(mean_diff, zval, pval, sd), names_to = "metric") %>%
+  pivot_wider(id_cols = c(I, metric), names_from = m, values_from = value) %>%
+  mutate(metric = factor(new_names[metric], ordered = T, levels = unname(new_names))) %>%
+  ggplot() +
+  facet_wrap(~metric, scales = "free") +
+  geom_point(aes(x = Mo, y = all), alpha = 0.5) +
+  geom_rect(data = pval_band, aes(xmin = min1, xmax = max1, ymin = ymin, ymax = ymax), color = "black", fill = NA) +
+  geom_rect(data = pval_band, aes(xmin = ymin, xmax = ymax, ymin = min2, ymax = max2), color = "black", fill = NA) +
+  ggtitle("CSEP Tests") +
+  labs(subtitle = filt, color = "p-value", fill = "p-value") +
+  xlab("Filterd for Monday") +
+  ylab("All values") +
+  theme_bw() +
+  theme(strip.background = element_blank())
+ggsave("./../test/filter_weekday/csep_mixAmixB.pdf", width = 240, height = 200, unit = "mm")
+
+results %>%
+  filter(t == "CSEP") %>%
+  pivot_longer(cols = c(mean_diff, zval, pval, sd), names_to = "metric") %>%
+  pivot_wider(id_cols = c(I, metric, cmp), names_from = m, values_from = value) %>%
+  mutate(metric = factor(new_names[metric], ordered = T, levels = unname(new_names))) %>%
+  ggplot() +
+  facet_wrap(~metric, scales = "free") +
+  geom_point(aes(x = Mo, y = all, color = cmp), alpha = 0.5) +
+  ggtitle("CSEP Tests") +
+  xlab("Filterd for Monday") +
+  ylab("All values") +
+  labs(color = "Comparison") +
+  theme_bw() +
+  theme(strip.background = element_blank(), legend.position = "bottom")
+ggsave("./../test/filter_weekday/csep_all.pdf", width = 240, height = 200, unit = "mm")
+
+results %>%
+  filter(t == "CSEP", cmp == filt) %>%
+  pivot_longer(cols = c(mean_diff, zval, pval, sd), names_to = "metric") %>%
+  mutate(metric = factor(new_names[metric], ordered = T, levels = unname(new_names))) %>%
+  ggplot() +
+  facet_wrap(~metric, scales = "free") +
+  geom_histogram(aes(x = value, fill = m), position = "dodge", bins = 20) +
+  labs(fill = "Version", subtitle = filt) +
+  xlab(NULL) +
+  ggtitle("Marginal Distributions") +
+  theme_bw() +
+  theme(strip.background = element_blank(), legend.position = "bottom")
+ggsave("./../test/filter_weekday/csep_marginals_lmmixB.pdf", width = 240, height = 200, unit = "mm")
+
+rm(cmp_run_sim, cmp_cons_fcsts, results, my_plot)
