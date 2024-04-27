@@ -3,10 +3,10 @@ library(dplyr)
 library(tidyr)
 library(data.table)
 
+library(monotone)         # for monotone : fast isotonic mean regression
 library(gridExtra)        # grid.arrange : put ggplots next to each other
 library(grid)             # for grobText : change text size in grid.arrange
 library(cowplot)          # for get_legend : extract legend from plot
-library(monotone)         # for monotone : fast isotonic mean regression
 library(sf)               # for st_as_sf : convert data.frame to geographic sf format
 library(rnaturalearth)    # for ne_countries : load country data
 library(scales)           # for trans_new : custom data transformation
@@ -14,6 +14,7 @@ library(scales)           # for trans_new : custom data transformation
 library(geomtextpath)     # for geom_labelabline: draw lines with label
 
 source("data_prep.R")
+source("utils.R")
 
 # use standard colors of ggplot for discrete variables
 model_colors <- c("FCM" = "#F8766D", "LG" = "#00BF7D",  "LM" = "#A3A500",
@@ -26,87 +27,8 @@ ana_models <- model_names[model_names != cmp_model]
 
 new_year <- month(times) == 1 & day(times) == 1 & year(times) %% 2 == 0
 
-fpath <- "./figures10"
-
-title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
-
-my_theme <- list(
-  theme_bw() +
-  theme(panel.grid.major = element_line(size = 0.05),
-        panel.grid.minor = element_line(size = 0.05),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 8),
-        legend.key.size = unit(5, "mm"),
-        plot.title = element_text(size = title_size),
-        strip.background = element_blank())
-)
-
-# handle zero forecast specifically
-s_pois <- function(X, Y) {
-  zero_fcst <- X == 0
-  impossible_fcst <- (X == 0) & (Y != 0)
-  score <- -Y * log(X) + X
-  score[zero_fcst] <- 0
-  score[impossible_fcst] <- Inf
-  return(score)
-}
-
-s_pois_da <- function(X, Y) {
-  zero_fcst <- X == 0
-  impossible_fcst <- (X == 0) & (Y != 0)
-  score <- -Y * log(X) + X
-  score[zero_fcst] <- 0
-  score[impossible_fcst] <- Inf
-  return(sum(score) / n_days)       # daily averages
-}
-
-s_quad <- function(X, Y) {
-  return((X - Y)^2)
-}
-
-s_quad_da <- function(X, Y) {
-  return(sum((X - Y)^2) / n_days)   # daily averages
-}
-
-s_theta_da <- function(x, y, theta) {
-  # Elementary scoring function for the mean following Ehm et al. (2016)
-  if (sum(y) == 0) {
-    s <- theta * sum(x > theta)
-  } else {
-    s <- sum(pmax(y-theta, 0) - pmax(x-theta, 0) - (y - x) * (theta < x))
-  }
-  return(s / n_days) # daily averages
-}
-
-inf_gain <- function(X1, X2, Y) {
-  X1_t <- rowSums(X1)
-  X2_t <- rowSums(X2)
-  return(
-    rowSums(Y * (log(X1) - log(X2))) - (X1_t - X2_t)
-  )
-}
-
-cum_inf_gain <- function(X1, X2, Y) {
-  return(cumsum(inf_gain(X1, X2, Y)))
-}
-
-inf_gain_per_event <- function(X1, X2, Y) {
-  n_t <- rowSums(Y)
-  X1_t <- rowSums(X1)
-  X2_t <- rowSums(X2)
-  return(
-    rowSums(Y * (log(X1) - log(X2))) / n_t - (X1_t - X2_t) / n_t
-  )
-}
-
-cum_igpe <- function(X1, X2, Y) {
-  n_t <- cumsum(rowSums(Y))
-  X1_t <- cumsum(rowSums(X1))
-  X2_t <- cumsum(rowSums(X2))
-  return(
-    cumsum(rowSums(Y * (log(X1) - log(X2)))) / n_t - (X1_t - X2_t) / n_t
-  )
-}
+fpath <- "./figures"
+tpath <- "./save_results"  # where computed values from full-evalation_heavy-computation.R are stored
 
 ################################################################################
 # Figure 1: Distribution of earthquakes
@@ -371,7 +293,7 @@ for (i in 1:length(models)) {
   table1[i, "Poisson"] <- s_pois_da(models[[i]], obs)
 }
 table1
-write.csv(table1, file.path(fpath, "Table1.csv"))
+write.csv(table1, file.path(tpath, "Table1.csv"))
 
 print_tex_table(
   table1,
@@ -397,7 +319,7 @@ for (i in 1:length(models)) {
   table2[i, "IGPE"] <- cum_igpe(models[[which(model_names == cmp_model)]], models[[i]], obs)[n_days]
 }
 table2
-write.csv(table2, file.path(fpath, "Table3.csv"))
+write.csv(table2, file.path(tpath, "Table3.csv"))
 
 print_tex_table(
   table2,
@@ -413,31 +335,6 @@ rm(table1, table2)
 ################################################################################
 # Statistical tests
 ################################################################################
-
-csep_test <- function(fcst1, fcst2, y, scf) {
-  N <- sum(y)
-  diff_logs <- log(fcst1) - log(fcst2)
-  I_N_ij <- sum(y * diff_logs) / N - (sum(fcst1) - sum(fcst2)) / N
-  test_var <- 1 / (N - 1) * sum(y * diff_logs^2) - 1 / (N^2 - N) * sum(y * diff_logs)^2
-
-  test_stat <- I_N_ij / sqrt(test_var) * sqrt(N)
-  pval <- 1 - pt(test_stat, N - 1)
-  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(test_var), mean_diff = I_N_ij))
-}
-
-dm_test <- function(fcst1, fcst2, y, scf) {
-  diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
-  mean_diff_score <- mean(diff_scores)
-
-  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
-  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
-
-  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
-  pval <- 1 - pnorm(test_stat)
-
-  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
-                    mean_diff = mean_diff_score))
-}
 
 filter_days <- rep(T, n_days)
 # 1. DM with Poisson -----------------------------------------------------------
@@ -489,7 +386,7 @@ for (i in 1:(length(model_order) - 1)) {
 val_matrix[length(models), length(models)] <- diag_func(models[[model_order[length(models)]]][filter_days,],
                                                         obs[filter_days,])
 
-write.csv(val_matrix, file.path(fpath, paste0("tests_", name, ".csv")))
+write.csv(val_matrix, file.path(tpath, paste0("tests_", name, ".csv")))
 
 print_tex_table(
   val_matrix,
@@ -777,32 +674,7 @@ rm(scores, diff_scores, spat_plot, eq_loc, europe)
 # Murphy diagramm
 ################################################################################
 
-S_elem <- compiler::cmpfun(s_theta_da) # compile function to reduce runtime a bit
-
-daily <- FALSE
-
-n_theta <- 100
-if (!daily) {
-  log_grid <- seq(-24, 4, len = n_theta)
-} else {
-  log_grid <- seq(-7, 4, len = n_theta)
-}
-grd <- exp(log_grid)
-
-# use for loops, as otherwise memory demand is too high
-# Jonas calculates each row separately, it seems faster? check it!
-murphy_df <- matrix(0, nrow = length(grd), ncol = length(models))
-for (m in 1:length(models)) {
-  print(m)
-  for (t in 1:n_theta) {
-    cat("*")
-    murphy_df[t, m] <- S_elem(models[[m]], obs, grd[t])
-  }
-}
-colnames(murphy_df) <- model_names
-
-# or read it in
-murphy_df <- read.csv("./figures10/murphy_df.csv") %>%
+murphy_df <- read.csv(file.path(tpath, "murphy_df.csv")) %>%
   select(all_of(model_names))
 
 x_midpoints <- (log_grid[-1] + log_grid[-n_theta]) / 2
@@ -838,61 +710,9 @@ murphy_diag <- data.frame(murphy_df) %>%
 file_path <- file.path(fpath, "Fig3_LogMurphyDiag.pdf")
 ggsave(file_path, width = 145, height = 80, unit = "mm", plot = murphy_diag)
 
-# now look at Murphy diagram of miscalibration and discrimination component
-MCB_diag <- DSC_diag <- matrix(0.0, ncol = n_mods, nrow = n_theta)
-for (i in 1:n_mods) {
-  print(i)
-  # cell_decomposition determines score components for each spatial cell separately
-  decomp <- cell_decomposition(models[[i]], obs, theta = grd)
-  # decomp <- day_decomposition(models[[i]], obs, theta = grd) # in helpful_routines.R
-  MCB_diag[ ,i] <- rowSums(decomp$MCB)
-  DSC_diag[ ,i] <- rowSums(decomp$DSC)
-}
-UNC_diag <- rowSums(decomp$UNC)
-
-# alternatively: recalibrate everything at once
-UNC_diag <- numeric(length(grd))
-
-for (i in 1:n_mods) {
-  print(i)
-  # recalibrate forecasts x with isotoinc regression from monotone package
-  x <- as.vector(models[[i]])
-  y <- as.vector(obs)
-  ord <- order(x, y, decreasing = c(FALSE, TRUE))
-  x <- x[ord]
-  y <- y[ord]
-  x_rc <- monotone(y)
-
-  for (t in 1:length(grd)) {
-    cat("*")
-    s <- S_elem(x, y, grd[t])
-    s_rc <- S_elem(x_rc, y, grd[t])
-    s_mg <- S_elem(mean(y), y, grd[t])
-
-    MCB_diag[t, i] <- s - s_rc
-    DSC_diag[t, i] <- s_mg - s_rc
-    if (i == 1) {
-      UNC_diag[t] <- s_mg
-    }
-  }
-}
-
-df_collect <- rbind(
-  # again divide by n_days to get daily averages
-  cbind(data.frame(MCB_diag), Type = "MCB"),
-  cbind(data.frame(DSC_diag), Type = "DSC")
-)
-colnames(df_collect) <- c(model_names, "Type")
-
-df_collect <- df_collect %>%
-  mutate(log_theta = rep(log_grid, 2)) %>%
-  pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
-  mutate(Type = ifelse(Type == "MCB", "Miscalibration", "Discrimination"))
-
-# or read precomputed values in
-df_collect <- read.csv("./figures7/murphy-MCB-DSC.csv", row.names = 1) %>%
+df_collect <- read.csv(file.path(tpath, "murphy_mcb_dsc.csv"), row.names = 1) %>%
   filter(Model %in% model_names)
-murphy_df <- read.csv("./figures7/murphy_df.csv") %>%
+murphy_df <- read.csv(file.path(tpath, "murphy_df.csv")) %>%
   select(all_of(model_names)) %>%
   mutate(log_theta = log_grid) %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model") %>%
@@ -951,6 +771,7 @@ ggsave(file_path, width = 145, height = 110, unit = "mm", plot = combine)
 # If we integrate murphy diagram with correct measure, do we get score?
 # If we integrate MCB / DSC Murphy diagram, do we get MCB and DSC component?
 # If we combine MCB, DSC, UNC Murphy diagram, do we get Murphy diagram?
+UNC_diag <- read.csv(file.path(tpath, "murphy_unc.csv"))$unc
 combine_back <- df_collect %>%
   pivot_wider(id_cols = c(log_theta, Model), names_from = Type, values_from = value) %>%
   mutate(MSC_DSC = Miscalibration - Discrimination) %>%
@@ -966,29 +787,15 @@ rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine,
 # Score component plot
 ################################################################################
 
-dm_test <- function(fcst1, fcst2, y, scf, daily = F) {
-  if (daily) {
-    diff_scores <- scf(fcst2, y) - scf(fcst1, y)
-  } else {
-    diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
-  }
-  mean_diff_score <- mean(diff_scores)
-
-  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
-  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
-
-  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
-  pval <- 1 - pnorm(test_stat)
-
-  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
-                    mean_diff = mean_diff_score))
-}
-
 get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
   scores_wide <- results %>%
     filter(is.finite(value)) %>%
     pivot_wider(id_cols = c(Model, Scoring), names_from = Type, values_from = value) %>%
     mutate(Scoring = ifelse(Scoring == "pois", "Poisson", "Quadratic"))
+  mcb_vals <- setNames(scores_wide$MCB, scores_wide$Model)
+  dsc_vals <- setNames(scores_wide$DSC, scores_wide$Model)
+  df_non_sig <- non_sig_seg %>%
+    transmute(x = mcb_vals[m1], xend = mcb_vals[m2], y = dsc_vals[m1], yend = dsc_vals[m2])
   unc <- mean(with(scores_wide, Score - MCB + DSC), na.rm = T)    # recover uncertainty component
   pois_panel <- scores_wide$Scoring[1] == "Poisson"
 
@@ -1040,7 +847,7 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
     geom_labelabline(data = iso, aes(intercept = intercept, slope = 1.0, label = label),
                      color = "gray50", hjust = labelline_just, size = 7 * 0.36, text_only = TRUE,
                      boxcolour = NA, straight = TRUE) +
-    geom_segment(data = non_sig_seg, mapping = aes(x = x, y = y, xend = xend, yend = yend),
+    geom_segment(data = df_non_sig, mapping = aes(x = x, y = y, xend = xend, yend = yend),
                  linetype = "dotted", alpha = 0.5, size = 0.5) +
     geom_point(aes(x = MCB, y = DSC, color = Model), size = 1.5) +
     geom_text(aes(x = MCB, y = DSC, label = Model, hjust = hjusts, vjust = vjusts, color = Model),
@@ -1060,68 +867,12 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
   return(pl)
 }
 
-get_score_cmps <- function(x, y, name, scf_list = list("pois" = s_pois_da, "quad" = s_quad_da), daily = F) {
-  if (!daily) {
-    x <- as.vector(x)
-    y <- as.vector(y)
-  } else {
-    x <- rowSums(x)
-    y <- rowSums(y)
-  }
+non_sig_seg_pois <- read.csv(file.path(tpath, "score-cmps_non-sig-seg.csv"))
 
-  scores <- data.frame()
-  ord <- order(x, y, decreasing = c(FALSE, TRUE))
-  x <- x[ord]
-  y <- y[ord]
-  x_rc <- monotone(y)
-
-  for (scf_name in names(scf_list)) {
-    scf <- scf_list[[scf_name]]
-    s <- scf(x, y)
-    s_rc <- scf(x_rc, y)
-    s_mg <- scf(mean(y), y)
-
-    scores <- rbind(
-      scores,
-      data.frame(Model = name, Scoring = scf_name, Type = c("Score", "MCB", "DSC"),
-                 value = c(s, s - s_rc, s_mg - s_rc))
-    )
-  }
-  return(scores)
-}
-
-get_non_sig_connections <- function(df_score_cmp, scf, level = 0.1, daily = F) {
-  non_sig_con <- data.frame()
-
-  for (i in 1:(length(models) - 1)) {
-    for (j in ((i + 1):length(models))) {
-      p <- dm_test(models[[i]], models[[j]], obs, scf, daily = daily)$pval
-      if ((p > level / 2) & (p < 1 - level / 2)) {
-        non_sig_con <- rbind(
-          non_sig_con,
-          data.frame(x = filter(df_score_cmp, Model == model_names[i], Type == "MCB")$value,
-                     y = filter(df_score_cmp, Model == model_names[i], Type == "DSC")$value,
-                     xend = filter(df_score_cmp, Model == model_names[j], Type == "MCB")$value,
-                     yend = filter(df_score_cmp, Model == model_names[j], Type == "DSC")$value)
-        )
-      }
-    }
-  }
-  return(non_sig_con)
-}
-
-daily <- T
-df_score_cmp <- do.call(
-  rbind,
-  lapply(1:length(models), function(i) get_score_cmps(models[[i]], obs, model_names[i], daily = daily))
-)
-non_sig_seg_pois <- get_non_sig_connections(filter(df_score_cmp, Scoring == "pois"), s_pois)
-
-df_score_cmp <- read.csv("./figures10/score-cmps.csv")
-non_sig_seg_pois <- read.csv("./figures10/score-cmps_seg-pois.csv")
+df_score_cmp <- read.csv(file.path(tpath, "score-cmps.csv"))
 pl_pois <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois, top = "Total Score")
 
-non_sig_seg_pois <- read.csv("./figures10/df_score-cmps_seg-pois-daily.csv")
+df_score_cmp <- read.csv(file.path(tpath, "score-cmps_daily.csv"))
 pl_pois_daily <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"), non_sig_seg_pois, daily = T,
                                     top = "Number Score")
 
@@ -1138,124 +889,10 @@ rm(my_plot, pl_pois, pl_pois_daily, df_score_cmp)
 # Reliability diagramm
 ################################################################################
 
-reldiag <- function(x, y, n_resamples = 99, region_level = 0.9) {
-  ord <- order(x, y, decreasing = c(FALSE, TRUE))
-  x <- x[ord]
-  y <- y[ord]
-
-  # compress fit by only storing values around jumps that belong to distinct x-values
-  # (if there is a horizontal section of width 0 with more than two data points,
-  #  we would have two identical points in the data though we need only one)
-  filter_jumps <- function(x, v) {
-    n <- length(v)
-    jumps <- (v[-1] - v[-n] > 0)
-    # filter points around jumps (points immediately before and after a jump)
-    next_to_jump <- c(T, jumps) | c(jumps, T)
-    x_at_jump <- x[next_to_jump]
-    # set to False if corresponding x-values do not change
-    next_to_jump[next_to_jump] <- c(T, x_at_jump[-1] - x_at_jump[-length(x_at_jump)] > 0)
-    return(next_to_jump)
-  }
-
-  score <- s_pois_da
-
-  x_rc <- monotone(y)
-  s <- score(x,y)
-  s_rc <- score(x_rc, y)
-  s_mg <- score(mean(y), y)
-
-  mcb <- s - s_rc
-  dsc <- s_mg - s_rc
-  unc <- s_mg
-
-  jumps <- filter_jumps(x, x_rc)
-  rc_fit <- data.table(x = x[jumps], y = x_rc[jumps])
-
-  t <- table(y) / length(y)
-  vals <- as.numeric(names(t))
-  f_y <- as.numeric(t)
-  eps <- sum(f_y[-1] * vals[-1]) / x - 1
-  n_split <- 5      # as not everything fits into memory, split
-  split <- ceiling(seq(1, length(y), length.out = n_split))
-  cmp <- matrix(rep(cumsum(f_y[-length(f_y)]), split[2] - split[1] + 1),
-                ncol = length(f_y) - 1, byrow = T)
-
-  collect_vals <- list()
-  for (i in 1:n_resamples) {
-    for (j in 2:n_split) {
-      i_vec <- split[j - 1]:split[j]
-      u <- runif(length(i_vec), 0, 1 + eps[i_vec])
-      y[i_vec] <- rowSums(u - eps[i_vec] >= cmp[1:pmin(length(i_vec), nrow(cmp)), ])
-    }
-    ord <- order(x, y, decreasing = c(FALSE, TRUE))
-    x_rc <- monotone(y[ord])
-    jumps <- filter_jumps(x, x_rc)
-    # x is already sorted, so x[ord] would just resort x on sections on which it
-    # is already constant
-    collect_vals[[i]] <- data.table(x = x[jumps], y = x_rc[jumps], I = paste0("R", i))
-  }
-  x_grid <- sort(unique(c(do.call(c, lapply(collect_vals, function(vals) vals$x)), rc_fit$x)))
-  # linearly interpolate resampled fits on x values of original fit
-  resampl_fits <- do.call(cbind, lapply(collect_vals, function(df) {
-    approx(x = df$x, y = df$y, xout = x_grid, method = "linear", yleft = NA, yright = NA)$y
-  }))
-  val_low_and_up <- apply(resampl_fits, 1, function(row) {
-      sorted <- sort(row)
-      low <- floor(length(sorted) * (1 - region_level) / 2)   # maybe there are NA, so recalculate it
-      up <- length(sorted) - low
-      low <- pmax(low, 1)
-      c(sorted[low], sorted[up])
-    }) %>% t() %>%  # apply writes results in columns
-    as.data.table()
-
-  results <- cbind(
-    data.table(x = x_grid,
-               x_rc = approx(x = rc_fit$x, y = rc_fit$y, xout = x_grid, method = "linear", yleft = NA, yright = NA)$y),
-    val_low_and_up
-  )
-  colnames(results) <- c("x", "x_rc", "lower", "upper")
-  stats <- data.frame(Score = s, MCB = mcb, DSC = dsc, UNC = unc)
-  return(list(results = results, stats = stats))
-}
-
-reldiag_cmp <- compiler::cmpfun(reldiag)
-
-recal_models <- data.table()
-collect_stats <- data.table()
-
-set.seed(999)
-
-for (i in 1:length(models)) {
-  print(paste(model_names[i], Sys.time()))
-  res <- reldiag_cmp(as.vector(models[[i]]), as.vector(obs), n_resamples = 100)
-  recal_models <- rbind(recal_models, cbind(Model = model_names[i], res$results))
-  collect_stats <- rbind(
-    collect_stats,
-    cbind(Model = model_names[i], res$stats,
-          label = paste(names(res$stats), c("", " ", " ", " "),
-                        sprintf("%.3f", res$stats[1, ]),
-                        collapse = "\n"))
-  )
-}
-
-# or load already recalibrated values
-recal_models <- read.csv("./figures10/df_rel-Til100.csv", row.names = 1) %>%
+recal_models <- read.csv(file.path(tpath, "df_rel-Til100.csv"), row.names = 1) %>%
   filter(Model %in% model_names)
-collect_stats <- read.csv("./figures10/df_rel-stats.csv", row.names = 1) %>%
+collect_stats <- read.csv(file.path(tpath, "df_rel-stats.csv"), row.names = 1) %>%
   filter(Model %in% model_names)
-
-col_ecdfs <- list()
-for (i in 1:length(models)) {
-  t <- table(as.vector(models[[i]]))
-  col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
-                               y = c(0, cumsum(as.numeric(t))) / prod(dim(models[[i]])),
-                               M = model_names[i])
-}
-
-# or just loaded already computed values
-for (i in 1:length(models)) {
-  col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"), row.names = 1)
-}
 
 my_labeller <- function(l) {
   labels <- character(length(l))
@@ -1266,6 +903,11 @@ my_labeller <- function(l) {
 }
 
 # 1 - use averaed empirical CDF transform --------------------------------------
+col_ecdfs <- list()
+for (i in 1:length(models)) {
+  col_ecdfs[[i]] <- read.csv(file.path(tpath, paste0("ecdf_", model_names[i], ".csv")), row.names = 1)
+}
+
 mean_ecdf <- do.call(rbind, col_ecdfs) %>%
   pivot_wider(id_cols = x, names_from = M, values_from = y, values_fill = NA) %>%
   arrange(x) %>%
@@ -1297,7 +939,7 @@ text_y <- 0.64
 # add to name
 add_name <- ""
 
-# for daily ----------------------------------------
+# only if data was aggregated on days --------
 breaks <- c(0, 0.2, 0.3, 0.4, 1)
 t_breaks <- my_trans(breaks)
 labels <- rep("", length(breaks))
@@ -1362,7 +1004,7 @@ plot_min <- my_trans(min(vec[vec > 0]))
 
 # ------------------------------------------------------------------------------
 
-show_ticks <- element_blank()
+# show_ticks <- element_blank()
 show_ticks <- element_line(colour = "black", size = 0.3)
 
 inset_histograms <- list()
@@ -1371,7 +1013,6 @@ plot_max <- my_trans(max(c(recal_models$x, recal_models$upper)))
 hist_breaks <- seq(plot_min, plot_max, length.out = 9)
 for (i in 1:length(models)) {
   my_hist <- ggplot(data.table(x = as.vector(models[[i]]))) +
-    # geom_vline(xintercept = t_breaks, size = 0.2) +
     geom_histogram(aes(x = my_trans(x)), fill = "gray", col = "black", size = 0.2,
                    breaks = hist_breaks) +
     scale_x_continuous(breaks = t_breaks) +

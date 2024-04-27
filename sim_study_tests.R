@@ -5,28 +5,11 @@ library(gridExtra)
 library(grid)
 library(lubridate)
 
-s_pois <- function(X, Y) {
-  zero_fcst <- X == 0
-  impossible_fcst <- (X == 0) & (Y != 0)
-  score <- -Y * log(X) + X
-  score[zero_fcst] <- 0
-  score[impossible_fcst] <- Inf
-  return(score)
-}
+fpath <- "./figures"
+tpath <- "./save_results"
 
-fpath <- "./figures10"
-title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
-
-my_theme <- list(
-  theme_bw() +
-  theme(panel.grid.major = element_line(size = 0.05),
-        panel.grid.minor = element_line(size = 0.05),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 8),
-        legend.key.size = unit(5, "mm"),
-        plot.title = element_text(size = title_size),
-        strip.background = element_blank())
-)
+source("data_prep.R")   # make sure to load data of LM, LG and FMC model
+source("utils.R")
 
 ################################################################################
 
@@ -39,31 +22,6 @@ get_mix_forecasts <- function(fcst1, fcst2) {
   b[pick == 1, ] <- fcst2[pick == 1, ]
   b[pick == 0, ] <- fcst1[pick == 0, ]
   return(list(a = a, b = b))
-}
-
-csep_test <- function(fcst1, fcst2, y) {
-  N <- sum(y)
-  diff_logs <- log(fcst1) - log(fcst2)
-  I_N_ij <- sum(y * diff_logs) / N - (sum(fcst1) - sum(fcst2)) / N
-  test_var <- 1 / (N - 1) * sum(y * diff_logs^2) - 1 / (N^2 - N) * sum(y * diff_logs)^2
-
-  test_stat <- I_N_ij / sqrt(test_var) * sqrt(N)
-  pval <- 1 - pt(test_stat, N - 1)
-  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(test_var), mean_diff = I_N_ij))
-}
-
-dm_test <- function(fcst1, fcst2, y, scf) {
-  diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
-  mean_diff_score <- mean(diff_scores)
-
-  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
-  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
-
-  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
-  pval <- 1 - pnorm(test_stat)
-
-  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
-                    mean_diff = mean_diff_score))
 }
 
 sim_tests <- function(B = 400, weekday = "Mo") {
@@ -102,31 +60,7 @@ sim_tests <- function(B = 400, weekday = "Mo") {
   return(collect_results)
 }
 
-# Plots ------------------------------------------------------------------------
-
-analyze_autocorrelation_fcn <- function(B = 10, s_func = s_pois) {
-  acf_data <- data.frame()
-
-  for (i in 1:B) {
-    fcst_data <- mix_forecasts(as.vector(models[[which(model_names == "LG")]]),
-                               as.vector(models[[which(model_names == "FCM")]]))
-    fcst_a <- matrix(fcst_data$a, nrow = nrow(obs))
-    fcst_b <- matrix(fcst_data$b, nrow = nrow(obs))
-    score_diffs <- s_func(fcst_a, obs) - s_func(fcst_b, obs)
-
-    acf_obj <- acf(rowSums(score_diffs), type = "covariance", plot = F)
-
-    acf_data <- rbind(
-      acf_data, data.frame(lag = acf_obj$lag, value = acf_obj$acf, I = i)
-    )
-  }
-
-  ggplot(acf_data) +
-    facet_wrap(~I) +
-    geom_hline(aes(yintercept = 0)) +
-    geom_segment(aes(x = lag, y = value, xend = lag, yend = 0)) +
-    theme_bw()
-}
+# Plots functions ------------------------------------------------------------------------
 
 plot_results <- function(df) {
   bins <- seq(0, 1, length.out = 20 + 1)
@@ -138,7 +72,6 @@ plot_results <- function(df) {
   df %>%
     mutate(cmp = factor(new_cmp[cmp], ordered = T, levels = ord)) %>%
     ggplot() +
-    #  facet_grid(Type~cmp) +
     facet_wrap(~cmp) +
     geom_histogram(aes(x = pval, y = ..density..), breaks = bins) +
     geom_vline(xintercept = c(0.05, 0.95), color = "#f8766d", linetype = "dashed",
@@ -154,9 +87,9 @@ plot_results <- function(df) {
 
 cmp_run_sim <- compiler::cmpfun(sim_tests)
 
-set.seed(999)
+set.seed(1)
 results <- cmp_run_sim(B = 400)
-write.csv(results, "./figures10/simstudy_tests_400_s999.csv")
+write.csv(results, file.path(tpath, "simstudy-tests_400.csv"))
 
 my_plot <- plot_results(filter(results, t == "DM", m == "all"))
 file_path <- file.path(fpath, "Fig5_sim-DieboldMariano.pdf")

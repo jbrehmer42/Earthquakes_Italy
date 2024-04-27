@@ -4,11 +4,17 @@ This is the repository for an extended case study of earthquake forecasting in
 Italy. Parts of this case study and the corresponding code have been used in
 
 Jonas Brehmer, Tilmann Gneiting, Marcus Herrmann, Warner Marzocchi, Martin
-Schlather, and Kirstin Strokorb (2022+). Comparative evaluation of point
-process forecasts. 
+Schlather, and Kirstin Strokorb (2023). Comparative evaluation of point
+process forecasts
+
+and
+
+Jonas Brehmer, Kristof Kraus, Tilmann Gneiting, Marcus Herrmann, and
+Warner Marzocchi (2024+). Comparative evaluation of earthquake forecasting 
+models: An application to Italy.
 
 
-## Code
+## Code - Comparative evaluation of point process forecasts
 
 The following files create the diagrams and maps of the paper:
 
@@ -41,6 +47,23 @@ Other files:
 
 - **Resin_meanreldiag.R**  Code for mean reliability diagram by Johannes Resin.
 Basis for the plot_reliability function in functions_plot.R.
+
+## Code - Comparative evaluation of earthquake forecasting models: An application to Italy
+
+The tables and plots can be reproduced with the following files:
+
+- **data_prep.R** Loads all the data (see below) and pre-processes them. Called at
+the start of all other main scripts.
+- **functions_prep.R** Provides functions to load and process the data in
+- **full-evaluation_heavy-computation.R** pre-compute values for empirical CDFs, Murphy 
+diagrams, score component plot and reliability diagram
+- **full-evaluation_plots.R** comprises all the functionality to calculate the values for the
+tables and to create the plots of the publication regarding the analysis of the earthquake 
+forecasting models
+- **sim_study_calibr.R** manipulate LM forecast in different ways and visualize the effects
+on its reliability curve
+- **sim_study_tests.R** compare CSEP t-Test and Diebold Mariano test on forecasts derived from the LM, FCM and LG model
+- **utils.R** define plot theme, and scoring and test functions
 
 
 ## Data

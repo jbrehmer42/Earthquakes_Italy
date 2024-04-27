@@ -6,52 +6,21 @@ library(gridExtra)
 library(grid)
 library(geomtextpath)     # for geom_labelabline
 library(data.table)
-# library(ggrepel)
 
-fpath <- "./figures10"
+fpath <- "./figures"
+tpath <- "./save_results"
 
-title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
-
-my_theme <- list(
-  theme_bw() +
-  theme(panel.grid.major = element_line(size = 0.05),
-        panel.grid.minor = element_line(size = 0.05),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 8),
-        legend.key.size = unit(5, "mm"),
-        plot.title = element_text(size = title_size),
-        strip.background = element_blank())
-)
+source("data_prep.R")    # make sure that LM model is loaded
+source("utils.R")
 
 ################################################################################
 
-set.seed(111)
-
-s_quad <- function(x, y) return(sum((x - y)^2) / n_days)
-s_pois <- function(X, y) {
-  zero_fcst <- X == 0
-  impossible_fcst <- (X == 0) & (y != 0)
-  score <- -y * log(X) + X
-  score[zero_fcst] <- 0
-  score[impossible_fcst] <- Inf
-  return(sum(score) / n_days)
-}
-
-s_pois_gen <- function(X, y) {
-  zero_fcst <- X == 0
-  impossible_fcst <- (X == 0) & (y != 0)
-  score <- -y * log(X) + X
-  score[zero_fcst] <- 0
-  score[impossible_fcst] <- Inf
-  return(score)
-}
-
-scf_list <- list(quad = s_quad, pois = s_pois)
+scf_list <- list(quad = s_quad_da, pois = s_pois_da)
 
 get_forecaster <- function(fcst, daily = F) {
   if (!daily) {
     y <- as.vector(obs)
-    x <- as.vector(models[[1]])
+    x <- as.vector(models[[which(model_names == "LM")]])
     discretize <- quantile(x, probs = c(0, 0.1, 0.4, 0.5, 0.6, 0.9, 1))
   } else {
     discretize <- 10^((-2:2) / 2)
@@ -87,29 +56,7 @@ filter_jumps <- function(v) {
   return(c(T, v[-1] - v[-n] > 0) | c(v[-n] - v[-1] < 0, T))
 }
 
-S_theta <- function(x, y, theta) {
-  # Elementary scoring function for the mean following Ehm et al. (2016)
-  if ( sum(y) == 0 ) {
-    s <- theta * sum(x > theta)
-  } else {
-    s <- sum( pmax(y-theta, 0) - pmax(x-theta, 0) - (y - x) * (theta < x) )
-  }
-  return(s)
-}
-
 # Simulation study run ---------------------------------------------------------
-
-dm_test <- function(fcst1, fcst2, y, scf) {
-  diff_scores <- rowSums(scf(fcst1, y) - scf(fcst2, y))
-  mean_diff_score <- mean(diff_scores)
-
-  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
-  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
-
-  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
-  pval <- 1 - pnorm(test_stat)
-  return(pval)
-}
 
 run_simulation_study <- function(vec_fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2",
                                               "lm_upped", "lm_downed", "lm_underconf",
@@ -250,24 +197,6 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F) {
   return(pl)
 }
 
-dm_test <- function(fcst1, fcst2, y, scf, daily = F) {
-  if (daily) {
-    diff_scores <- scf(fcst2, y) - scf(fcst1, y)
-  } else {
-    diff_scores <- rowSums(scf(fcst2, y) - scf(fcst1, y))
-  }
-  mean_diff_score <- mean(diff_scores)
-
-  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
-  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
-
-  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
-  pval <- 1 - pnorm(test_stat)
-
-  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
-                    mean_diff = mean_diff_score))
-}
-
 get_non_sig_connections <- function(df_score_cmp, level = 0.1, daily = F) {
   non_sig_con <- data.frame()
   fcsts <- unique(df_score_cmp$fcst)
@@ -285,7 +214,7 @@ get_non_sig_connections <- function(df_score_cmp, level = 0.1, daily = F) {
         model2 <- matrix(model2, nrow = n_days)
       }
 
-      p <- dm_test(model1, model2, obs, s_pois_gen, daily = daily)$pval
+      p <- dm_test(model1, model2, obs, s_pois, daily = daily)$pval
       if ((p > level / 2) & (p < 1 - level / 2)) {
         non_sig_con <- rbind(
           non_sig_con,
@@ -351,8 +280,7 @@ get_ecdf_trans <- function(daily = FALSE) {
                                    y = c(0, cumsum(as.numeric(t))) / prod(dim(models[[i]])),
                                    M = model_names[i])
     } else {
-      col_ecdfs[[i]] <- read.csv(paste0("./../tmp_results/ecdf_", model_names[i], ".csv"),
-                                 row.names = 1)
+      col_ecdfs[[i]] <- read.csv(file.path(tpath, paste0("ecdf_", model_names[i], ".csv")), row.names = 1)
     }
   }
   mean_ecdf <- do.call(rbind, col_ecdfs) %>%
@@ -439,6 +367,7 @@ plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
 
 # Analysis ---------------------------------------------------------------------
 
+set.seed(111)
 cmp_run_sim <- compiler::cmpfun(run_simulation_study)
 daily <- FALSE
 
@@ -453,5 +382,5 @@ my_plot <- plot_score_components(l_results$scores, non_sig_seg, daily = daily)
 file_path <- file.path(fpath, "Fig7_MCB-DSC-manipulated-seg.pdf")
 ggsave(file_path, width = 140, height = 80, unit = "mm", plot = my_plot)
 
-write.csv(l_results$scores, file.path(fpath, "simstudy-rel_scores.csv"))
-write.csv(l_results$reliability, file.path(fpath, "simstudy-rel_rel.csv"))
+write.csv(l_results$scores, file.path(tpath, "simstudy-rel_scores.csv"))
+write.csv(l_results$reliability, file.path(ftath, "simstudy-rel_rel.csv"))
