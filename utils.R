@@ -92,6 +92,20 @@ cum_igpe <- function(X1, X2, Y) {
   )
 }
 
+igpe <- function(X1, X2, Y) {
+  N <- sum(Y)
+  return(sum(Y * (log(X1) - log(X2))) / N - sum(X1 - X2) / N)   # "bin-centric" perspective
+}
+
+igpe2 <- function(X1, X2, Y) {
+  N <- sum(Y)
+  y_vec <- as.vector(Y)
+  # "event-centric" perspective: each earthquake forms separate summand
+  x1_vec <- rep(as.vector(X1), y_vec)
+  x2_vec <- rep(as.vector(X2), y_vec)
+  return(sum(log(x1_vec) - log(x2_vec)) / N - sum(X1 - X2) / N)
+}
+
 # Tests ------------------------------------------------------------------
 
 csep_test <- function(fcst1, fcst2, y, scf = NULL) {

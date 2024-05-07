@@ -120,9 +120,9 @@ run_simulation_study <- function(vec_fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2",
 # Plots ------------------------------------------------------------------------
 
 change_names <- function(fcsts = NULL) {
-  mapping <- c("lm" = "LM", "lm_rc" = "LM rc", "lm_x5" = "LM x4", "lm_x0_2" = "LM x0.25",
+  mapping <- c("lm_rc" = "LM rc", "lm" = "LM", "lm_x0_2" = "LM x0.25", "lm_x5" = "LM x4",
                "lm_upped" = "LM upped", "lm_downed" = "LM downed",
-               "lm_overconf" = "LM overconf", "lm_underconf" = "LM underconf")
+               "lm_underconf" = "LM underconf", "lm_overconf" = "LM overconf")
   if (is.null(fcsts)) {
     return(mapping)
   } else {
@@ -133,8 +133,7 @@ change_names <- function(fcsts = NULL) {
 sort_forecasts <- function(fcsts) {
   return(factor(
     fcsts, ordered = T,
-    levels = c("lm", "lm_rc", "lm_x5", "lm_x0_2", "lm_upped", "lm_downed",
-               "lm_overconf", "lm_underconf")
+    levels = c("lm_rc", "lm", "lm_x0_2", "lm_x5", "lm_downed", "lm_upped", "lm_underconf", "lm_overconf")
   ))
 }
 
@@ -264,7 +263,7 @@ get_score_display <- function(df_scores) {
     filter(df_stats, fcst %in% c("lm", "lm_rc")) %>% mutate(I = "A", x = rev(text_x), y = rev(text_y)),
     filter(df_stats, fcst %in% c("lm_x5", "lm_x0_2")) %>% mutate(I = "B", x = text_x + c(0, push),
                                                                  y = text_y + c(push, 0)),
-    filter(df_stats, fcst %in% c("lm_upped", "lm_downed")) %>% mutate(I = "C", x = text_x, y = text_y),
+    #filter(df_stats, fcst %in% c("lm_upped", "lm_downed")) %>% mutate(I = "C", x = text_x, y = text_y),
     filter(df_stats, fcst %in% c("lm_overconf", "lm_underconf")) %>% mutate(I = "D", x = rev(text_x), y = rev(text_y))
   ) %>%
     mutate(fcst = sort_forecasts(fcst))
@@ -304,12 +303,13 @@ get_ecdf_trans <- function(daily = FALSE) {
 plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
   pick_panels <- c("A", "B", "D")
   n_rows <- 1
-  plot_colors <- scales::hue_pal()(8)[1:6]
+  plot_colors <- scales::hue_pal()(8)[c(2, 1, 4, 3, 6, 5)]
   plot_data <- make_groups(reliability) %>%
     filter(I %in% pick_panels)
 
   use_points <- c("lm_upped", "lm_downed", "lm_rc")
-  df_points <- filter(plot_data, fcst %in% use_points)
+  df_points <- rbind(filter(plot_data, fcst %in% use_points),
+                     filter(plot_data, fcst == "lm_underconf", x == 1e-5))   # add one point for lm_underconf
   df_segments <- filter(plot_data, !(fcst %in% use_points)) %>%
     group_by(fcst, I) %>%
     group_modify(function(df, key) {

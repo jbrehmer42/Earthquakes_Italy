@@ -13,7 +13,7 @@ if (!dir.exists(tpath)) {
 }
 
 ################################################################################
-# Murphy diagramm
+# ECDF transform
 ################################################################################
 
 col_ecdfs <- list()
@@ -21,7 +21,8 @@ for (i in 1:length(models)) {
   t <- table(as.vector(models[[i]]))
   col_ecdfs[[i]] <- data.table(x = c(0, as.numeric(names(t))),
                                y = c(0, cumsum(as.numeric(t))) / prod(dim(models[[i]])),
-                               M = model_names[i])
+                               M = model_names[i]) %>%
+    slice(floor(seq(1, nrow(.), length.out = 10^5)))    # subsample to decrease computational complexity
   write.csv(col_ecdfs[[i]], file.path(tpath, paste0("ecdf_", model_names[i], ".csv")))
 }
 rm(col_ecdfs)

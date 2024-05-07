@@ -124,7 +124,7 @@ combine <- ggplot() +
 
 # Warning: Removed 30 rows containing missing values is due to histogram log10
 # transformation, as we also fill each bin with a unique color
-file_path <- file.path(fpath, "Fig1_Earthquakes.pdf")
+file_path <- file.path(fpath, "Fig1_Earthquakes_linear.pdf")
 ggsave(file_path, width = 140, height = 100, unit = "mm", plot = combine)
 
 rm(eq_map, eq_hist, combine, annotate_symbols, df_hist)
@@ -220,8 +220,8 @@ create_row <- function(row, only_legend = F, top = F) {
   }
 }
 # use short dash ("en dash") = \u2013
-spat_subtitle <- paste0("Seven\u00adDay Period Starting ", lubridate::month(times[i_time], label = T, abbr = F), " ",
-                        day(times[i_time]), ", ", year(times[i_time]))
+spat_subtitle <- paste0("Seven\u00adDay Period Starting ", year(times[i_time]), " ",
+                        lubridate::month(times[i_time], label = T, abbr = F), " ", day(times[i_time]))
 spat_plot <- grid.arrange(create_row(c("LM", "FCM", "LG"), top = T),
                           create_row(c("SMA", "LRWA"), top = F),
                           nrow = 2)
@@ -629,8 +629,8 @@ diff_scores <- scores %>%
   mutate(LON = cells$LON, LAT = cells$LAT) %>%
   select(LON, LAT, all_of(ana_models)) %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model")
-diff_scores$Model <- factor(paste(cmp_model, "vs.", diff_scores$Model), ordered = T,
-                            levels = paste(cmp_model, "vs.", names(model_colors)))
+diff_scores$Model <- factor(paste(diff_scores$Model, "-", cmp_model), ordered = T,
+                            levels = paste(names(model_colors), "-", cmp_model))
 
 my_colors <- c("#f51818", "#ffffff", "#057ffa", "#000058")
 limits <- my_trans(range(diff_scores$value))
@@ -665,7 +665,7 @@ spat_plot <- ggplot() +
   my_theme +
   theme(legend.position = "bottom")
 
-file_path <- file.path(fpath, paste0("Fig10_ScoreDiffSpat", add_name, "-s.pdf"))
+file_path <- file.path(fpath, paste0("Fig10_ScoreDiffSpat", add_name, ".pdf"))
 ggsave(file_path, width = 145, height = 160, unit = "mm", plot = spat_plot)
 
 rm(scores, diff_scores, spat_plot, eq_loc, europe)
@@ -701,14 +701,14 @@ murphy_diag <- data.frame(murphy_df) %>%
   scale_color_manual(name = NULL, values = model_colors[model_names[model_order]]) +
   scale_fill_manual(name = NULL, values = model_colors) +
   scale_x_continuous(name = expression(paste("log", (theta))), breaks = my_breaks,
-                      sec.axis = sec_axis(~./log(10), name = NULL, breaks = sec_breaks,
+                      sec.axis = sec_axis(~./log(10), name = expression(theta), breaks = sec_breaks,
                                           labels = sec_labels)) +
   ylab("Elementary score") +
   my_theme +
   theme(legend.position = c(0.01, 0.1), legend.justification = c(0, 0))
 
 file_path <- file.path(fpath, "Fig3_LogMurphyDiag.pdf")
-ggsave(file_path, width = 145, height = 80, unit = "mm", plot = murphy_diag)
+ggsave(file_path, width = 145, height = 90, unit = "mm", plot = murphy_diag)
 
 df_collect <- read.csv(file.path(tpath, "murphy_mcb_dsc.csv"), row.names = 1) %>%
   filter(Model %in% model_names)
@@ -720,7 +720,9 @@ murphy_df <- read.csv(file.path(tpath, "murphy_df.csv")) %>%
 
 if (!daily) {
   mcb_fac <- 5
-  x_breaks <- -4:1 * 5
+  x_breaks <- -5:1 * 4.6
+  sec_breaks_x <- -5:1 * 2
+  sec_labels_x <- expression(10^-10, 10^-8, 10^-6, 10^-4, 10^-2, 10^0, 10^2)
   y_breaks <- 0:3 * 0.1
   y_minor_breaks <- -4:6 * 0.05
   sec_breaks <- c(-2:0 / mcb_fac * 0.1, 1:3 / 2 * 1 / mcb_fac * 0.1)
@@ -748,7 +750,9 @@ murphy_score_cmps <- ggplot(df_plot) +
             size = 0.3) +
   scale_color_manual(name = NULL, values = model_colors[model_names[model_order]]) +
   scale_fill_manual(name = NULL, values = model_colors) +
-  scale_x_continuous(breaks = x_breaks) +
+  scale_x_continuous(breaks = x_breaks,
+                     sec.axis = sec_axis(~./log(10), name = expression(theta), breaks = sec_breaks_x,
+                                         labels = sec_labels_x)) +
   scale_y_continuous(breaks = y_breaks, minor_breaks = y_minor_breaks,
                      limits = c(lower_lim, NA),
                      sec.axis = sec_axis(~./mcb_fac, name = NULL,
@@ -772,13 +776,14 @@ ggsave(file_path, width = 145, height = 110, unit = "mm", plot = combine)
 # If we integrate MCB / DSC Murphy diagram, do we get MCB and DSC component?
 # If we combine MCB, DSC, UNC Murphy diagram, do we get Murphy diagram?
 UNC_diag <- read.csv(file.path(tpath, "murphy_unc.csv"))$unc
+cmp_vals <- read.csv(file.path(tpath, "murphy_df.csv"), row.names = 1)
 combine_back <- df_collect %>%
   pivot_wider(id_cols = c(log_theta, Model), names_from = Type, values_from = value) %>%
   mutate(MSC_DSC = Miscalibration - Discrimination) %>%
   pivot_wider(id_cols = log_theta, names_from = Model, values_from = MSC_DSC) %>%
   mutate(across(all_of(model_names), function(m) m + UNC_diag)) %>%
   select(all_of(model_names))
-colSums(abs(combine_back - murphy_df))
+colSums(abs(combine_back - cmp_vals))
 
 rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine,
    MCB_diag, DSC_diag, UNC_diag, combine_back)
@@ -932,7 +937,7 @@ ymax <- 0.25
 # axis breaks and labels
 breaks <- c(0, 10^c(-7, -6, -5, -4), 0.88)      # 0.88 is maximal forecast value
 t_breaks <- my_trans(breaks)
-labels <- rep("", length(breaks))
+labels <- c("", expression(10^{-7}), "", expression(10^{-5}), expression(10^{-4}), "")
 # position of score components
 text_x <- 0.02
 text_y <- 0.64
@@ -1065,8 +1070,8 @@ create_row <- function(row, top = TRUE) {
                        yend = my_trans(x_rc), color = Model), size = 0.7, show.legend = FALSE) +
       scale_color_manual(values = model_colors) +
       scale_fill_manual(values = model_colors) +
-      scale_x_continuous(breaks = t_breaks, labels = c("", expression(10^{-7}), "", expression(10^{-5}), expression(10^{-4}), ""), limits = c(plot_min, plot_max)) +
-      scale_y_continuous(breaks = t_breaks, labels = c("", expression(10^{-7}), "", expression(10^{-5}), expression(10^{-4}), ""), limits = c(plot_min, plot_max)) +
+      scale_x_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
+      scale_y_continuous(breaks = t_breaks, labels = labels, limits = c(plot_min, plot_max)) +
       xlab(NULL) +
       ylab(NULL) +
       ggtitle(NULL) +
@@ -1110,7 +1115,7 @@ finish <- ggplot() +
   annotation_custom(ggplotGrob(small_hist), xmin = 0.88, xmax = 0.96, ymin = 0.07, ymax = 0.15) +
   annotate("text", x = 0.92, y = 0.16, label = "Histogram",
            size = 7 * 0.36, lineheight = 0.7, color = "darkgray") +
-  annotate("text", x = 0.92, y = 0.06, label = "Forecast\nvalue",
+  annotate("text", x = 0.92, y = 0.06, label = "Forecast value\n(CDF transform)",
            size = 7 * 0.36, lineheight = 0.7, color = "darkgray") +
   theme(axis.line = element_blank(), axis.text = element_blank(),
         axis.ticks = element_blank(), axis.title = element_blank(),

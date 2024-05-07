@@ -87,7 +87,7 @@ plot_results <- function(df) {
 
 cmp_run_sim <- compiler::cmpfun(sim_tests)
 
-set.seed(1)
+set.seed(111)
 results <- cmp_run_sim(B = 400)
 write.csv(results, file.path(tpath, "simstudy-tests_400.csv"))
 
