@@ -107,6 +107,8 @@ filter_region <- function(events, cells) {
   # Filter out events which do not fall into the 
   # testing region. Assign a grid cell number to
   # the remaining events
+  # In accordance with pycsep: "Bins are inclusive on lower bound
+  # and exclusive on upper bound"
   #
   # Input values:
   # events - Data frame of observed events
@@ -126,10 +128,10 @@ filter_region <- function(events, cells) {
   cell_lo <- cells$LAT - 0.5 * size_LAT
   cell_up <- cells$LAT + 0.5 * size_LAT
   # need tolerance due to floating point inaccuracies (some events lie exactly on boundary which is not catched)
-  tol <- 1e-9
+  tol <- 1e-12
   for (i in 1:n) {
-    isLON <- (cell_le < events$LON[i]) & (events$LON[i] < cell_ri + tol)
-    isLAT <- (cell_lo < events$LAT[i]) & (events$LAT[i] < cell_up + tol)
+    isLON <- (cell_le < events$LON[i] + tol) & (events$LON[i] + tol < cell_ri)
+    isLAT <- (cell_lo < events$LAT[i] + tol) & (events$LAT[i] + tol < cell_up)
     if (any(isLON & isLAT) ) {
       # Assign cell number inside testing region
       cell_number[i] <- cells$N[isLON & isLAT]
