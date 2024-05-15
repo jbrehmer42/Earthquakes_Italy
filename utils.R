@@ -1,4 +1,5 @@
 # plottting : customize theme -------------------------------------
+library(ggplot2)
 
 title_size <- 13.2  # base size 11 * 1.2 (default for theme_bw())
 

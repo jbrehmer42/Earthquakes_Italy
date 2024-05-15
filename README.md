@@ -13,14 +13,36 @@ Jonas Brehmer, Tilmann Gneiting, Marcus Herrmann, Warner Marzocchi, Martin
 Schlather, and Kirstin Strokorb (2023). Comparative evaluation of point
 process forecasts.
 
+## Differences to previously reported predictive performance
+
+We report slightly different Poisson scores compared to
+
+J. Brehmer, T. Gneiting, M. Herrmann, W. Marzocchi, M.
+Schlather, and K. Strokorb (2023). Comparative evaluation of point
+process forecasts.
+
+Due to numerical inaccuracies three earthquakes had been unnecessarily excluded 
+from analysis. Additionally, we adhere to the CSEP binning which includes lower boundaries to a cell and
+excludes upper boundaries, whereas Brehmer et al. used the opposite rule. This results in four 
+earthquakes being assigned to a neighboring cells.
+
+Likewise, we report different IGPE values compared to
+
+M. Herrmann and W. Marzocchi (2023). Maximizing the forecasting skill of an ensemble
+model. Geophysical Journal International.
+
+The reason is again a slightly different binning of earthquakes registered on cell boundaries.
+While Herrmann et al. also use the CSEP binning, numerical inaccuracies entailed that five
+earthquakes had been assigned to a wrong cell in terms of the CSEP binning.
+
 ## Code
 
 The tables and plots can be reproduced with the following files:
 
 - **data_prep.R** Loads all the data (see below) and pre-processes them. Called at
 the start of all other main scripts.
-- **precompute.R** Provides functions to load and process the data in
-- **full-evaluation_heavy-computation.R** pre-compute values for empirical CDFs, Murphy 
+- **functions_prep.R** Provides functions to load and preprocess the data
+- **precompute.R** pre-compute values for empirical CDFs, Murphy 
 diagrams, score component plot and reliability diagram
 - **plots_and_tables.R** comprises all the functionality to calculate the values for the
 tables and to create the plots of the publication apart from simulation study plots
@@ -48,5 +70,5 @@ appropriately scaled, they can be understood as climatological forecast which
 are constant in time. The scaling depends on the assumed number of events in a
 7-day period, see Mail by Warner Marzocchi (08.09.21)
 
-The code loads all the data to RAM, so on a machine with 8GB or less memory
-this can be problematic and crash R.
+The code was developed on a machine with 16GB of RAM. This is required if for the analysis all the models are
+kept in memory simultaneously.

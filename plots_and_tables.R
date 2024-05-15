@@ -802,10 +802,9 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
   df_non_sig <- non_sig_seg %>%
     transmute(x = mcb_vals[m1], xend = mcb_vals[m2], y = dsc_vals[m1], yend = dsc_vals[m2])
   unc <- mean(with(scores_wide, Score - MCB + DSC), na.rm = T)    # recover uncertainty component
-  pois_panel <- scores_wide$Scoring[1] == "Poisson"
 
-  fmt <- paste0("%.",  ifelse(pois_panel, 2, 3), "f")
-  labelline_just <- ifelse(pois_panel, 0.45, 0.32)  # position of scores at lines
+  fmt <- "%.2f"
+  labelline_just <- ifelse(daily, 0.5, 0.25)  # position of scores at lines
 
   # shift labels away from points to make them readable
   if (!daily) {
@@ -826,22 +825,23 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
   plot_max_dsc <- dsc_range[2] + 0.1 * (dsc_range[2] - dsc_range[1])
   plot_min_dsc <- dsc_range[1] - 0.2 * (dsc_range[2] - dsc_range[1])
   # isolines have slope 1, we can determine everything with linear equations :)
-  iso <- data.frame(intercept = seq(plot_min_dsc - plot_max_mcb, plot_max_dsc - plot_min_mcb, length.out = 8)) %>%
+  iso <- data.frame(intercept = seq(ifelse(daily, 0.03, 0.68), ifelse(daily, 0.07, 0.98), ifelse(daily, 0.01, 0.05))) %>%
     mutate(on_axis = intercept + plot_min_mcb < plot_min_dsc)  %>%
     mutate(score = unc - intercept,       # miscalibration is 0, intercept corresponds to DSC
            label = paste(sprintf(fmt, score)))
-  iso <- iso[2:(nrow(iso) - 1), ]   # drop first and last row because they just correspond to the corners
 
-  xbreaks <- plot_min_dsc - iso$intercept[iso$on_axis]
+  xbreaks <- seq(0.035, 0.075, 0.005)
+  xlabels <- ifelse(1:length(xbreaks) %% 2 == 0, sprintf("%.2f", xbreaks), "")
   if (!daily) {
-    xbreaks <- seq(xbreaks, plot_max_mcb - (xbreaks[1] - plot_min_mcb), length.out = 4)
+    xbreaks <- seq(0.07, 0.12, 0.05)
+    xlabels <- sprintf("%.2f", xbreaks)
   }
-  xlabels <- sprintf(paste0("%.", ifelse(daily, 2, 2), "f"), xbreaks)
-  ybreaks <- iso$intercept[!iso$on_axis] + plot_min_mcb
-  if (daily) {
-    ybreaks <- seq(ybreaks[1], plot_max_dsc - (ybreaks[1] - plot_min_dsc), length.out = 5)
+  ybreaks <- seq(0.1, 0.11, 0.005)
+  ylabels <- sprintf("%.3f", ybreaks)
+  if (!daily) {
+    ybreaks <- seq(0.8, 1.1, 0.05)
+    ylabels <- ifelse(1:length(ybreaks) %% 2 == 1, sprintf("%.3f", ybreaks), "")
   }
-  ylabels <- sprintf(paste0("%.3f"), ybreaks)
 
   pl <- left_join(scores_wide, justs, by = "Model") %>%
     mutate(Scoring = top) %>%   # assume that there is just one label
@@ -852,6 +852,7 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
     geom_labelabline(data = iso, aes(intercept = intercept, slope = 1.0, label = label),
                      color = "gray50", hjust = labelline_just, size = 7 * 0.36, text_only = TRUE,
                      boxcolour = NA, straight = TRUE) +
+    geom_abline(intercept = ifelse(daily, 0.08, 1.03), color = "gray50", alpha = 0.15) +   # draw two more lines
     geom_segment(data = df_non_sig, mapping = aes(x = x, y = y, xend = xend, yend = yend),
                  linetype = "dotted", alpha = 0.5, size = 0.5) +
     geom_point(aes(x = MCB, y = DSC, color = Model), size = 1.5) +

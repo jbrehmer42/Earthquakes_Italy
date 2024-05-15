@@ -3,12 +3,12 @@
 
 
 # Path for r scripts
-rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
+rpath <- "./"
 
 # Path for data
 # The files containing the forecasts and observations should
 # be located in this folder
-dpath <- "/media/myData/EQData"
+dpath <- "./../data"
 
 # Set file names (default names)
 # The forecast model outputs are arrays with time in rows
@@ -17,8 +17,7 @@ model_files <- c("forecast_ETAS_LM_FP32.dat.xz",
                  "forecast_ETES_FCM_FP32.dat.xz",
                  "forecast_STEP_LG_FP32.dat.xz",
                  "forecast-ensemble_SMA_FP32.dat.xz",
-                 "forecast-ensemble_LR-WA_M3+s2-1d_FP32.dat.xz",
-                 "forecast-ensemble_LR-WA_M3+s1_seq-basedM3+trigM4.5+_wbyN_noIrreg_1d_FP32.dat.xz")
+                 "forecast-ensemble_LR-WA_M3+s2-1d_FP32.dat.xz")
 # Time stamps corresponding to model outputs
 # (rows of the model output data)
 time_stamps_file <- "meta_rows_dates.csv"
@@ -93,4 +92,4 @@ obs <- observation_matrix(events, times, n_cells)
 # clima$RATE <- clima$RATE * events_per7
 
 ## Clean up
-rm(file_path, clima_file)
+rm(file_path)
