@@ -3,12 +3,12 @@
 
 
 # Path for r scripts
-rpath <- "/media/myData/Doks/Forschung/Code/Earthquakes_Italy"
+rpath <- "./"
 
 # Path for data
 # The files containing the forecasts and observations should
 # be located in this folder
-dpath <- "/media/myData/EQData"
+dpath <- "./../data"
 
 # Set file names (default names)
 # The forecast model outputs are arrays with time in rows
@@ -16,7 +16,8 @@ dpath <- "/media/myData/EQData"
 model_files <- c("forecast_ETAS_LM_FP32.dat.xz",
                  "forecast_ETES_FCM_FP32.dat.xz",
                  "forecast_STEP_LG_FP32.dat.xz",
-                 "forecast-ensemble_SMA_FP32.dat.xz")
+                 "forecast-ensemble_SMA_FP32.dat.xz",
+                 "forecast-ensemble_LR-WA_M3+s2-1d_FP32.dat.xz")
 # Time stamps corresponding to model outputs
 # (rows of the model output data)
 time_stamps_file <- "meta_rows_dates.csv"
@@ -33,12 +34,10 @@ library(Matrix)
 source(file.path(rpath, "functions_prep.R"))
 
 # Set model names and their colors
-model_names <- c("LM", "FMC", "LG", "SMA")
-model_colors <- c("black", "darkgreen", "blue", "red")
+model_names <- c("LM", "FCM", "LG", "SMA", "LRWA")
 # Define last day where model evaluation is possible (needed
 # because we treat 7-day periods)
 last_day <- list(DD = 20, MM = 5, YY = 2020)
-
 
 ###############
 ## Load data ##
@@ -74,17 +73,17 @@ n_days <- length(times)
 obs <- observation_matrix(events, times, n_cells)
 
 # Load climatological model (constant in time)
-clima_file <- file.path(dpath, "rate_clima.txt")
-clima <- read.table(clima_file, header = F, col.names = c("LON", "LAT", "RATE"))
+# clima_file <- file.path(dpath, "rate_clima.txt")
+# clima <- read.table(clima_file, header = F, col.names = c("LON", "LAT", "RATE"))
 
 # The climatology file contains only normalized rates, i.e. spatial
 # distribution of events. We have to multiply it by the value of events
 # per time period. Different choices (depending on how we include after
 # shocks) are possible
 #events_per7 <- 25.95 * 7/365      # See Mail by Warner (08.09.21)
-events_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
+# events_per7 <- 12 * 7/365      # See Mail by Warner (08.09.21)
 #events_per7 <- 16.97 * 7/365      # Events per year (calculated from events file)
-clima$RATE <- clima$RATE * events_per7
+# clima$RATE <- clima$RATE * events_per7
 
 ## Clean up
-rm(file_path, clima_file)
+rm(file_path)
