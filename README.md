@@ -22,7 +22,9 @@ Schlather, and K. Strokorb (2023). Comparative evaluation of point
 process forecasts.
 
 Due to numerical inaccuracies three earthquakes had been unnecessarily excluded 
-from analysis. Additionally, we adhere to the CSEP binning which includes lower boundaries to a cell and
+from analysis (these were the earthquake going with the timestamp 2016-05-30 20:24:20.460,
+2016-08-26 04:28:25.890, and 29019-10-25 04:31:38.200). 
+Additionally, we adhere to the CSEP binning which includes lower boundaries to a cell and
 excludes upper boundaries, whereas Brehmer et al. used the opposite rule. This results in four 
 earthquakes being assigned to a neighboring cells.
 

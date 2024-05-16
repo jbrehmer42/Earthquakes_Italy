@@ -34,16 +34,10 @@ library(Matrix)
 source(file.path(rpath, "functions_prep.R"))
 
 # Set model names and their colors
-model_names <- c("LM", "FCM", "LG", "SMA", "LRWA", "LRWAsb")
-model_colors <- c("black", "darkgreen", "blue", "red")
+model_names <- c("LM", "FCM", "LG", "SMA", "LRWA")
 # Define last day where model evaluation is possible (needed
 # because we treat 7-day periods)
 last_day <- list(DD = 20, MM = 5, YY = 2020)
-
-select_models <- c(1, 2, 3, 4, 5)
-model_files <- model_files[select_models]
-model_names <- model_names[select_models]
-
 
 ###############
 ## Load data ##

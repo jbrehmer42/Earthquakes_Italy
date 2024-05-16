@@ -102,9 +102,9 @@ run_simulation_study <- function(vec_fcst = c("lm", "lm_rc", "lm_x5", "lm_x0_2",
       data.frame(fcst = forecaster, x = x[filt_jumps], x_rc = x_rc[filt_jumps])
     )
 
-    elem_scores <- sapply(grd, function(theta) S_theta(x, y, theta))
-    elem_scores_rc <- sapply(grd, function(theta) S_theta(x_rc, y, theta))
-    elem_scores_mg <- sapply(grd, function(theta) S_theta(mean_y, y, theta))
+    elem_scores <- sapply(grd, function(theta) s_theta(x, y, theta))
+    elem_scores_rc <- sapply(grd, function(theta) s_theta(x_rc, y, theta))
+    elem_scores_mg <- sapply(grd, function(theta) s_theta(mean_y, y, theta))
 
     murphy <- rbind(
       murphy,
@@ -182,8 +182,10 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F) {
     geom_text(aes(x = MCB, y = DSC, label = change_names(fcst), hjust = hjusts, vjust = vjusts,
                   color = fcst),
               size = 8 * 0.36) +
+    xlab("MCB") +
+    ylab("DSC") +
     scale_color_discrete() +
-    coord_cartesian(xlim = mcb_range + c(0, 1) / 10 * diff(mcb_range),
+    coord_cartesian(xlim = mcb_range + c(-1, 1) / 10 * diff(mcb_range),
                     ylim = dsc_range + c(-3, 1) / 10 * diff(dsc_range),
                     expand = F) +
     annotate("label", x = Inf, y = -Inf, label = paste0("UNC = ", sprintf("%.3f", unc)),
@@ -213,7 +215,7 @@ get_non_sig_connections <- function(df_score_cmp, level = 0.1, daily = F) {
         model2 <- matrix(model2, nrow = n_days)
       }
 
-      p <- dm_test(model1, model2, obs, s_pois, daily = daily)$pval
+      p <- dm_test(model1, model2, obs, s_pois)$pval
       if ((p > level / 2) & (p < 1 - level / 2)) {
         non_sig_con <- rbind(
           non_sig_con,
@@ -377,10 +379,11 @@ my_plot <- plot_rel(l_results$reliability, l_results$scores, daily = daily, use_
 file_path <- file.path(fpath, "Fig6_RelDiag-manipulated.pdf")
 ggsave(file_path, width = 140, height = 68, unit = "mm", plot = my_plot)
 
-non_sig_seg <- get_non_sig_connections(filter(l_results$scores$Scoring == "pois"))
+non_sig_seg <- get_non_sig_connections(filter(l_results$scores, Scoring == "pois"))
 my_plot <- plot_score_components(l_results$scores, non_sig_seg, daily = daily)
-file_path <- file.path(fpath, "Fig7_MCB-DSC-manipulated-seg.pdf")
+file_path <- file.path(fpath, "Fig_MCB-DSC-manipulated-seg.pdf")
 ggsave(file_path, width = 140, height = 80, unit = "mm", plot = my_plot)
 
+write.csv(non_sig_seg, file.path(tpath, "simstudy-rel_non-sig-seg.csv"))
 write.csv(l_results$scores, file.path(tpath, "simstudy-rel_scores.csv"))
-write.csv(l_results$reliability, file.path(ftath, "simstudy-rel_rel.csv"))
+write.csv(l_results$reliability, file.path(fpath, "simstudy-rel_rel.csv"))

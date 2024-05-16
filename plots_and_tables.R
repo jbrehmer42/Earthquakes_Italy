@@ -124,7 +124,7 @@ combine <- ggplot() +
 
 # Warning: Removed 30 rows containing missing values is due to histogram log10
 # transformation, as we also fill each bin with a unique color
-file_path <- file.path(fpath, "Fig1_Earthquakes_linear.pdf")
+file_path <- file.path(fpath, "Fig1_Earthquakes.pdf")
 ggsave(file_path, width = 140, height = 100, unit = "mm", plot = combine)
 
 rm(eq_map, eq_hist, combine, annotate_symbols, df_hist)
@@ -429,6 +429,8 @@ acf_plot <- ggplot(acf_data) +
 file_path <- file.path(fpath, "Fig_DM-acf-values.pdf")
 ggsave(file_path, width = 140, height = 160, unit = "mm", plot = acf_plot)
 
+rm(acf_plot, acf_data, val_matrix, sds, mean_diffs, filter_days, diag_func)
+
 ################################################################################
 # Visualize Poisson score (differences) temporally
 ################################################################################
@@ -593,10 +595,12 @@ rm(scores, scores_long, diff_scores, combine_plots, score_plot, score_diff_plot,
 # Visualize Poisson score differences spatially
 ################################################################################
 
-# use log transform for positive and negative values (see ?modulus_trans)
+# use log transform for positive and negative values (cf. ?modulus_trans)
 # but need to scale with d so that log scaling gets active (around zero the
 # transformation is the identity, but for large absolute values it is a log
-# transform
+# transform)
+
+# need to load europe data and lon_lim / lon_lat from first plot
 
 # 1 - Poisson score ------------------------------------------------------------
 scf <- s_pois
@@ -673,6 +677,9 @@ rm(scores, diff_scores, spat_plot, eq_loc, europe)
 ################################################################################
 # Murphy diagramm
 ################################################################################
+
+n_theta <- 100
+log_grid <- seq(-24, 4, len = n_theta)    # has to correspond to precomputed values!
 
 murphy_df <- read.csv(file.path(tpath, "murphy_df.csv")) %>%
   select(all_of(model_names))
@@ -785,8 +792,7 @@ combine_back <- df_collect %>%
   select(all_of(model_names))
 colSums(abs(combine_back - cmp_vals))
 
-rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine,
-   MCB_diag, DSC_diag, UNC_diag, combine_back)
+rm(murphy_df, decomp, murphy_diag, df_collect, murphy_score_cmps, combine, combine_back)
 
 ################################################################################
 # Score component plot
@@ -804,43 +810,41 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
   unc <- mean(with(scores_wide, Score - MCB + DSC), na.rm = T)    # recover uncertainty component
 
   fmt <- "%.2f"
-  labelline_just <- ifelse(daily, 0.5, 0.25)  # position of scores at lines
+  labelline_just <- ifelse(daily, 0.63, 0.25)  # position of scores at lines
 
   # shift labels away from points to make them readable
   if (!daily) {
     justs <- data.frame(Model = c("LM", "FCM", "LG", "SMA", "LRWA"),
-                        hjusts = c(0.0, 1.2, 0.0, 1.2, -0.2),
-                        vjusts = c(1.5, 0.0, -1.0, 1.5, -0.2))
+                        hjusts = c(0.0, 1.2, 0.0, -0.2, -0.2),
+                        vjusts = c(1.5, 1.5, -1.0, 0.4, 0.4))
   } else {
     justs <- data.frame(Model = c("LM", "FCM", "LG", "SMA", "LRWA"),
-                        hjusts = c(-0.3, 0.5, 1.2, 0.5, -0.2),
-                        vjusts = c(0.0, 1.5, 1.5, -1.0, 1.5))
+                        hjusts = c(-0.3, 0.5, 1.2, -0.1, -0.2),
+                        vjusts = c(0.0, 1.8, 1.5, -0.6, 0.5))
   }
 
   # define plot ranges manually, so that we exactly know where isolines start and end
-  mcb_range <- range(scores_wide$MCB)
-  dsc_range <- range(scores_wide$DSC)
-  plot_max_mcb <- mcb_range[2] + 0.05 * (mcb_range[2] - mcb_range[1])
-  plot_min_mcb <- mcb_range[1] - 0.05 * (mcb_range[2]- mcb_range[1])
-  plot_max_dsc <- dsc_range[2] + 0.1 * (dsc_range[2] - dsc_range[1])
-  plot_min_dsc <- dsc_range[1] - 0.2 * (dsc_range[2] - dsc_range[1])
+  plot_max_mcb <- ifelse(daily, 0.084, 0.156)
+  plot_min_mcb <- ifelse(daily, 0.026, 0.044)
+  plot_max_dsc <- ifelse(daily, 0.111, 1.12)
+  plot_min_dsc <- ifelse(daily, 0.0997, 0.77)
   # isolines have slope 1, we can determine everything with linear equations :)
-  iso <- data.frame(intercept = seq(ifelse(daily, 0.03, 0.68), ifelse(daily, 0.07, 0.98), ifelse(daily, 0.01, 0.05))) %>%
-    mutate(on_axis = intercept + plot_min_mcb < plot_min_dsc)  %>%
+  iso <- data.frame(intercept = seq(ifelse(daily, 0.02, 0.63), ifelse(daily, 0.08, 1.08),
+                                    ifelse(daily, 0.01, 0.05))) %>%
     mutate(score = unc - intercept,       # miscalibration is 0, intercept corresponds to DSC
            label = paste(sprintf(fmt, score)))
 
-  xbreaks <- seq(0.035, 0.075, 0.005)
-  xlabels <- ifelse(1:length(xbreaks) %% 2 == 0, sprintf("%.2f", xbreaks), "")
+  xbreaks <- seq(0.03, 0.08, 0.005)
+  xlabels <- ifelse(1:length(xbreaks) %% 2 == 1, sprintf("%.2f", xbreaks), "")
   if (!daily) {
-    xbreaks <- seq(0.07, 0.12, 0.05)
+    xbreaks <- seq(0.05, 0.15, 0.05)
     xlabels <- sprintf("%.2f", xbreaks)
   }
   ybreaks <- seq(0.1, 0.11, 0.005)
-  ylabels <- sprintf("%.3f", ybreaks)
+  ylabels <- ifelse(1:length(ybreaks) %% 2 == 1, sprintf("%.2f", ybreaks), "")
   if (!daily) {
     ybreaks <- seq(0.8, 1.1, 0.05)
-    ylabels <- ifelse(1:length(ybreaks) %% 2 == 1, sprintf("%.3f", ybreaks), "")
+    ylabels <- paste0("  ", sprintf("%.2f", ybreaks))
   }
 
   pl <- left_join(scores_wide, justs, by = "Model") %>%
@@ -852,7 +856,6 @@ get_score_cmp_plot <- function(results, non_sig_seg, daily = F, top = "") {
     geom_labelabline(data = iso, aes(intercept = intercept, slope = 1.0, label = label),
                      color = "gray50", hjust = labelline_just, size = 7 * 0.36, text_only = TRUE,
                      boxcolour = NA, straight = TRUE) +
-    geom_abline(intercept = ifelse(daily, 0.08, 1.03), color = "gray50", alpha = 0.15) +   # draw two more lines
     geom_segment(data = df_non_sig, mapping = aes(x = x, y = y, xend = xend, yend = yend),
                  linetype = "dotted", alpha = 0.5, size = 0.5) +
     geom_point(aes(x = MCB, y = DSC, color = Model), size = 1.5) +

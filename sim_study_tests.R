@@ -165,4 +165,4 @@ results %>%
   theme(strip.background = element_blank(), legend.position = "bottom")
 ggsave("./../test/filter_weekday/csep_marginals_lmmixB.pdf", width = 240, height = 200, unit = "mm")
 
-rm(cmp_run_sim, cmp_cons_fcsts, results, my_plot)
+rm(cmp_run_sim, results, my_plot)
