@@ -48,10 +48,7 @@ n_breaks <- length(my_breaks) - 1
 mag_colors <- seq_gradient_pal(m_low, m_high, "Lab")(seq(0,1,length.out=n_breaks))
 
 # scale size maps 4 to area = 4, but we want to scale it a bit down
-size_trans <- trans_new(
-  "linearScaleDown",
-  function(x) x - 2, function(x) x + 2
-)
+size_trans <- trans_new("linearScaleDown", function(x) x - 2, function(x) x + 2)
 new_range <- range(size_trans$transform(events$MAG))
 
 eq_map <- ggplot() +
@@ -151,7 +148,7 @@ temp_plot <- pred_by_day %>%
   scale_x_continuous(breaks = pred_by_day$X[new_year], labels = year(times[new_year])) +
   scale_y_log10() +
   scale_color_manual(name = NULL, values = model_colors[model_names[model_order]],
-                     guide = guide_legend(order = 1)) +
+                     guide = guide_legend(order = 1, override.aes = list(size = 0.5))) +
   scale_shape_manual(name = NULL, values = c("Observed earthquakes" = 1)) +
   xlab(NULL) +
   ylab("Forecast value") +
@@ -170,15 +167,18 @@ pred_by_cell_long <- pred_one_day %>%
   select(LON, LAT, all_of(model_names)) %>%
   pivot_longer(cols = all_of(model_names), names_to = "Model")
 
-# should we censor data?
-pred_by_cell_long <- mutate(pred_by_cell_long, value = pmax(value, 10^-7))
+# create manual color scheme, so thata values smaller than cut_off are drawn in as white
+n_interpolate <- 10
+magma_colors <- c("#FFFFFF", "#FFFFFF", scales::viridis_pal(option = "magma", direction = -1)(n_interpolate))
+cut_off <- 10^-7
+vals <- c(log10(min(pred_by_cell_long$value)), log10(cut_off * 0.9),
+          seq(log10(cut_off), log10(max(pred_by_cell_long$value)), length.out = n_interpolate))
 
 events_filtered <- events %>%
   filter(TS >= times[i_time], TS < times[i_time] + days(7))
 
-# to center align plots in facet_wrap: make plot for each row and combine them
-# with grid.arrange
-cb_limits <- range(pred_by_cell_long$value)   # colorbar limits
+# to center align plots in facet_wrap: make plot for each row and combine them with grid.arrange
+cb_limits <- c(10^-8, vals[length(vals)] )  # colorbar limits
 
 create_row <- function(row, only_legend = F, top = F) {
   pred_dt <- filter(pred_by_cell_long, Model %in% row)
@@ -196,17 +196,17 @@ create_row <- function(row, only_legend = F, top = F) {
   }
   pl <- ggplot() +
     facet_wrap(~factor(Model, ordered = T, levels = row), nrow = 1) +
-    geom_tile(data = pred_dt, aes(x = LON, y = LAT, fill = value), alpha = 0.5) +
+    geom_tile(data = pred_dt, aes(x = LON, y = LAT, fill = log10(value)), alpha = 0.5, na.rm = T) +
     geom_sf(data = filter(europe, name == "Italy"), color = "black", alpha = 0.4,
             size = 0.2, fill = NA) +
     coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
     scale_x_continuous(name = NULL, breaks = c(6, 12, 18)) +
     scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
-    scale_fill_viridis_c(name = "Forecast\nvalue",
-                        breaks = 10^(c(-9, -7, -5, -3)), limits = cb_limits,
-                        labels = expression(10^-9, 10^-7, 10^-5, 10^-3),
-                        trans = "log10", option = "magma", direction = -1,
-                        guide = guide_colorbar(order = 1)) +
+    scale_fill_gradientn(name = "Forecast\nvalue",
+                         colors = magma_colors, values = rescale(vals), limits = cb_limits,
+                         breaks = c(-11, -9, -7, -5, -3),
+                         labels = expression(10^-11, 10^-9, 10^-7, 10^-5, 10^-3),
+                         guide = guide_colorbar(frame.colour = "black", barheight = unit(40, "mm"))) +
     scale_color_manual(name = "Observed\nearth-\nquakes", values = c("Obs. earthquakes" = "black"),
                        labels = "", guide = guide_legend(order = 2, override.aes = list(size = 4))) +
     add_eqs +
@@ -313,9 +313,9 @@ colnames(table2) <- c("Poisson", "Pois-diff", "IG", "IGPE")
 
 for (i in 1:length(models)) {
   table2[i, "Poisson"] <- s_pois_da(models[[i]], obs)
-  # we can do it like that, since LM is the first score we calculate in the loop
-  table2[i, "Pois-diff"] <- table2[i, "Poisson"] - table2["LM", "Poisson"]
-  table2[i, "IG"] <- sum(inf_gain(models[[which(model_names == "LM")]], models[[i]], obs))
+  # we can do it like that, since LM (cmp_model) is the first score we calculate in the loop
+  table2[i, "Pois-diff"] <- table2[i, "Poisson"] - table2[cmp_model, "Poisson"]
+  table2[i, "IG"] <- sum(inf_gain(models[[which(model_names == cmp_model)]], models[[i]], obs))
   table2[i, "IGPE"] <- cum_igpe(models[[which(model_names == cmp_model)]], models[[i]], obs)[n_days]
 }
 table2
@@ -330,7 +330,31 @@ print_tex_table(
   file_path = file.path(fpath, "Table3.tex")
 )
 
-rm(table1, table2)
+# Table Response: Information Gain conditioned on weekday ------------------------
+table3 <- matrix(NA, nrow = 7, ncol = length(models) - 1)
+weekdays <- c("Mo" = "Mon", "Di" = "Tue", "Mi" = "Wed", "Do" = "Thu", "Fr" = "Fri", "Sa" = "Sat", "So" = "Sun")
+rownames(table3) <- unname(weekdays)
+colnames(table3) <- ana_models
+
+for (w in names(weekdays)) {
+  day_filter <- lubridate::wday(times, label = T) == w
+  for (m in ana_models) {
+    table3[weekdays[w], m] <- sum(inf_gain(models[[which(model_names == cmp_model)]][day_filter, ],
+                                           models[[which(model_names == m)]][day_filter, ], obs[day_filter, ]))
+  }
+}
+table3
+write.csv(table3, file.path(tpath, "Table_response.csv"))
+
+print_tex_table(
+  table3,
+  col_names = list(c("", colnames(table3))),
+  digits = c(3, 3, 3, 3),
+  col_align = "c",
+  file_path = file.path(fpath, "Table_Response.tex")
+)
+
+rm(table1, table2, table3)
 
 ################################################################################
 # Statistical tests
@@ -508,7 +532,7 @@ score_diff_plot <- ggplot() +
   geom_point(data = filter(diff_scores, earthquake),
              aes(x = X, y = value, color = Model, shape = earthquake),
              size = point_size, alpha = point_alpha) +
-  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3, linetype = "dashed") +
   scale_x_continuous(breaks = scores$X[new_year], labels = NULL, limits = c(0, nrow(scores))) +
   scale_y_continuous(trans = my_trans, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks, limits = my_limits) +
@@ -524,7 +548,7 @@ score_diff_plot <- ggplot() +
 
 # 1 cumulative information gain ------------------------------------------------
 df_cum <- do.call(
-  cbind, lapply(ana_models, function(i) cum_inf_gain(models[[which(model_names == "LM")]],
+  cbind, lapply(ana_models, function(i) cum_inf_gain(models[[which(model_names == cmp_model)]],
                                                      models[[which(model_names == i)]], obs))
 ) %>%
   as.data.frame() %>%
@@ -534,11 +558,11 @@ colnames(df_cum) <- c(ana_models, "X", "earthquake")
 cum_inf_plot <- df_cum %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model") %>%
   ggplot() +
-  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3, linetype = "dashed") +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = (1:n_days)[new_year], labels = NULL, limits = c(1, n_days)) +
   scale_color_manual(name = NULL, values = model_colors[model_names[model_order]],
-                     guide = guide_legend(nrow = 1, keywidth = unit(4, "mm"))) +
+                     guide = guide_legend(nrow = 1, override.aes = list(size = 0.5))) +
   xlab(NULL) +
   ylab("Information Gain (IG)") +
   ggtitle(NULL) +
@@ -548,7 +572,7 @@ cum_inf_plot <- df_cum %>%
 
 # 2 cumulative information gain per event --------------------------------------
 df_cum_pe <- do.call(
-  cbind, lapply(ana_models, function(i) cum_igpe(models[[which(model_names == "LM")]],
+  cbind, lapply(ana_models, function(i) cum_igpe(models[[which(model_names == cmp_model)]],
                                                  models[[which(model_names == i)]], obs))
 ) %>%
   as.data.frame() %>%
@@ -558,13 +582,11 @@ colnames(df_cum_pe) <- c(ana_models, "X", "earthquake")
 cum_inf_pe_plot <- df_cum_pe %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model") %>%
   ggplot() +
-  geom_hline(yintercept = 0, color = "black", size = 0.3, linetype = "dashed") +
+  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3, linetype = "dashed") +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = (1:n_days)[new_year], labels = year(times[new_year]),
                      limits = c(1, n_days)) +
-  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors, breaks = ana_models,
-                     guide = guide_legend(order = 1, direction = "horizontal",
-                                          override.aes = list(alpha = 0.75))) +
+  scale_color_manual(name = paste(cmp_model, "vs."), values = model_colors, breaks = ana_models) +
   xlab(NULL) +
   ylab("IG per event") +
   ggtitle(NULL) +
@@ -573,11 +595,9 @@ cum_inf_pe_plot <- df_cum_pe %>%
   theme(plot.margin = margin(-3, 5.5, 5.5, 5.5),
         legend.background = element_blank())
 
-aligned <- align_plots(score_plot, score_diff_plot, cum_inf_plot, cum_inf_pe_plot,
-                       align = "v")
+aligned <- align_plots(score_plot, score_diff_plot, cum_inf_plot, cum_inf_pe_plot, align = "v")
 # first values of each model of cum inf gain per event are NA since division by zero
-combine_plots <- grid.arrange(aligned[[1]], aligned[[2]], aligned[[3]], aligned[[4]],
-                              ncol = 1)
+combine_plots <- grid.arrange(aligned[[1]], aligned[[2]], aligned[[3]], aligned[[4]], ncol = 1)
 file_path <- file.path(fpath, "Fig4_score-and-info.pdf")
 ggsave(file_path, width = 140, height = 170, unit = "mm", plot = combine_plots)
 
@@ -680,6 +700,7 @@ rm(scores, diff_scores, spat_plot, eq_loc, europe)
 
 n_theta <- 100
 log_grid <- seq(-24, 4, len = n_theta)    # has to correspond to precomputed values!
+daily <- F
 
 murphy_df <- read.csv(file.path(tpath, "murphy_df.csv")) %>%
   select(all_of(model_names))
@@ -705,7 +726,8 @@ murphy_diag <- data.frame(murphy_df) %>%
   geom_rect(data = best_models_bar, aes(color = Model, fill = Model, xmin = xmin,
                                         xmax = xmax, ymin = ymin, ymax = ymax),
             show.legend = F) +
-  scale_color_manual(name = NULL, values = model_colors[model_names[model_order]]) +
+  scale_color_manual(name = NULL, values = model_colors[model_names[model_order]],
+                     guide = guide_legend(override.aes = list(size = 0.5))) +
   scale_fill_manual(name = NULL, values = model_colors) +
   scale_x_continuous(name = expression(paste("log", (theta))), breaks = my_breaks,
                       sec.axis = sec_axis(~./log(10), name = expression(theta), breaks = sec_breaks,
@@ -886,8 +908,8 @@ pl_pois_daily <- get_score_cmp_plot(filter(df_score_cmp, Scoring == "pois"), non
                                     top = "Number Score")
 
 my_plot <- grid.arrange(pl_pois, pl_pois_daily, nrow = 1,
-                        bottom = textGrob("MCB", gp = gpar(fontsize = 11)),
-                        left = textGrob("DSC", rot = 90, gp = gpar(fontsize = 11)))
+                        bottom = textGrob("Miscalibration (MCB)", gp = gpar(fontsize = 11)),
+                        left = textGrob("Discrimination (DSC)", rot = 90, gp = gpar(fontsize = 11)))
 
 file_path <- file.path(fpath, "Fig9_MCB-DSC-plot.pdf")
 ggsave(file_path, width = 145, height = 80, unit = "mm", plot = my_plot)

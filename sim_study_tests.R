@@ -8,12 +8,13 @@ library(lubridate)
 fpath <- "./figures"
 tpath <- "./save_results"
 
-source("data_prep.R")   # make sure to load data of LM, LG and FMC model
+source("data_prep.R")   # make sure to load data of LM, LG and FCM model
 source("utils.R")
 
 ################################################################################
 
 get_mix_forecasts <- function(fcst1, fcst2) {
+  # create mixture models : pick for each day with probability 0.5 either fcst1 or fcst2
   pick <- rbinom(n_days, 1, 0.5)
   a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
   a[pick == 1, ] <- fcst1[pick == 1, ]
@@ -24,10 +25,43 @@ get_mix_forecasts <- function(fcst1, fcst2) {
   return(list(a = a, b = b))
 }
 
-sim_tests <- function(B = 400, weekday = "Mo") {
+get_mix_forecasts_spatial <- function(fcst1, fcst2) {
+  # create mixture models : pick for each cell with probability 0.5 either fcst1 or fcst2
+  pick <- rbinom(n_cells, 1, 0.5)
+  a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  a[, pick == 1] <- fcst1[, pick == 1]
+  a[, pick == 0] <- fcst2[, pick == 0]
+  b <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  b[, pick == 1] <- fcst2[, pick == 1]
+  b[, pick == 0] <- fcst1[, pick == 0]
+  return(list(a = a, b = b))
+}
+
+get_mix_forecasts_all_three <- function(fcst1, fcst2, fcst3) {
+  # create mixture models : pick for each day with probability 0.5 either fcst1 or fcst2
+  pick <- sample(1:3, n_days, T)
+  a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  a[pick == 1, ] <- fcst1[pick == 1, ]
+  a[pick == 2, ] <- fcst2[pick == 2, ]
+  a[pick == 3, ] <- fcst3[pick == 3, ]
+  pick2 <- sample(1:2, n_days, T)
+  b <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  b[pick == 1 & pick2 == 1, ] <- fcst2[pick == 1 & pick2 == 1, ]
+  b[pick == 1 & pick2 == 2, ] <- fcst3[pick == 1 & pick2 == 2, ]
+  b[pick == 2 & pick2 == 1, ] <- fcst1[pick == 2 & pick2 == 1, ]
+  b[pick == 2 & pick2 == 2, ] <- fcst3[pick == 2 & pick2 == 2, ]
+  b[pick == 3 & pick2 == 1, ] <- fcst1[pick == 3 & pick2 == 1, ]
+  b[pick == 3 & pick2 == 2, ] <- fcst2[pick == 3 & pick2 == 2, ]
+  return(list(a = a, b = b))
+}
+
+sim_tests <- function(B = 400, weekdays = c("Mo"), mix_fcsts = get_mix_forecasts) {
   collect_results <- data.frame()
 
-  filter_days <- (lubridate::wday(times, label = T) == weekday)
+  filter_days <- c(lapply(weekdays, function(w) lubridate::wday(times, label = T) == w),
+                   rep(T, n_days))
+  weekdays <- c(weekdays, "All")
+  max_lags <- setNames(c(rep(0, 7), 6), weekdays)
 
   y <- obs
   lm <- models[[which(model_names == "LM")]]
@@ -37,23 +71,26 @@ sim_tests <- function(B = 400, weekday = "Mo") {
 
   for (i in 1:B) {
     cat("*")
-    mixed_fcsts <- get_mix_forecasts(mix1, mix2)
+    mixed_fcsts <- mix_fcsts(mix1, mix2)
 
     fcst_data <- setNames(list(lm, mixed_fcsts[[1]], mixed_fcsts[[2]]), fcst_names)
 
     for (fcst1 in 1:(length(fcst_names) - 1)) {
       for (fcst2 in (fcst1 + 1):length(fcst_names)) {
         cmp_name <- paste(fcst_names[fcst1], "vs.", fcst_names[fcst2])
-        test_vals1 <- csep_test(fcst_data[[fcst_names[fcst1]]], fcst_data[[fcst_names[fcst2]]], y)
-        test_vals2 <- dm_test(fcst_data[[fcst_names[fcst1]]], fcst_data[[fcst_names[fcst2]]], y, s_pois)
-        test_vals3 <- csep_test(fcst_data[[fcst_names[fcst1]]][filter_days,],
-                                fcst_data[[fcst_names[fcst2]]][filter_days,], y[filter_days,])
-        collect_results <- rbind(
-          collect_results,
-          cbind(test_vals1, I = i, cmp = cmp_name, t = "CSEP", m = "all"),
-          cbind(test_vals2, I = i, cmp = cmp_name, t = "DM", m = "all"),
-          cbind(test_vals3, I = i, cmp = cmp_name, t = "CSEP", m = "Mo")
-        )
+        dfs_dm <- lapply(1:length(weekdays), function(c) {
+          test_vals <- dm_test(fcst_data[[fcst_names[fcst1]]][filter_days[[c]], ],
+                               fcst_data[[fcst_names[fcst2]]][filter_days[[c]], ], y[filter_days[[c]], ], s_pois,
+                               max_lag = max_lags[c])
+          return(data.frame(test_vals, I = i, cmp = cmp_name, t = "DM", m = weekdays[c]))
+        })
+
+        dfs_csep <- lapply(1:length(weekdays), function(c) {
+          test_vals <- csep_test(fcst_data[[fcst_names[fcst1]]][filter_days[[c]], ],
+                                 fcst_data[[fcst_names[fcst2]]][filter_days[[c]], ], y[filter_days[[c]], ])
+          return(data.frame(test_vals, I = i, cmp = cmp_name, t = "CSEP", m = weekdays[c]))
+        })
+        collect_results <- rbind(collect_results, do.call(rbind, dfs_csep), do.call(rbind, dfs_dm))
       }
     }
   }
@@ -88,8 +125,9 @@ plot_results <- function(df) {
 cmp_run_sim <- compiler::cmpfun(sim_tests)
 
 set.seed(111)
-results <- cmp_run_sim(B = 400)
-write.csv(results, file.path(tpath, "simstudy-tests_400.csv"))
+results <- cmp_run_sim(B = 400, weekdays = c("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"),
+                       mix_fcsts = get_mix_forecasts_all_three)
+write.csv(results, file.path(tpath, "simstudy-tests_400_temporal.csv"))
 
 my_plot <- plot_results(filter(results, t == "DM", m == "all"))
 file_path <- file.path(fpath, "Fig5_sim-DieboldMariano.pdf")
@@ -166,3 +204,7 @@ results %>%
 ggsave("./../test/filter_weekday/csep_marginals_lmmixB.pdf", width = 240, height = 200, unit = "mm")
 
 rm(cmp_run_sim, results, my_plot)
+
+
+# df <- df %>%
+#   mutate(m = factor(c("Di" = "Tue", "Mi" = "Wed", "Do" = "Thu", "Fr" = "Fri", "Sa" = "Sat", "So" = "Sun")[m], ordered = T, levels = c("Tue", "Wed", "Thu", "Fri", "Sat", "Sun")))
