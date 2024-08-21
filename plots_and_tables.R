@@ -37,8 +37,7 @@ tpath <- "./save_results"  # where computed values from full-evalation_heavy-com
 lon_lim <- range(cells$LON)
 lat_lim <- range(cells$LAT)
 
-# RAM intensive: PyCharm takes up to 3 GB
-europe <- ne_countries(scale = "medium", returnclass = "sf")
+europe <- ne_countries(scale = "medium", returnclass = "sf")  # RAM intensive
 
 m_high <- "#500000"   # old dark red "#5e0306"
 m_low <- "#fc474d"
@@ -171,6 +170,8 @@ pred_by_cell_long <- pred_one_day %>%
 n_interpolate <- 10
 magma_colors <- c("#FFFFFF", "#FFFFFF", scales::viridis_pal(option = "magma", direction = -1)(n_interpolate))
 cut_off <- 10^-7
+min_val <- 10^-8
+pred_by_cell_long <- mutate(pred_by_cell_long, value = pmax(min_val, value))
 vals <- c(log10(min(pred_by_cell_long$value)), log10(cut_off * 0.9),
           seq(log10(cut_off), log10(max(pred_by_cell_long$value)), length.out = n_interpolate))
 
@@ -178,7 +179,7 @@ events_filtered <- events %>%
   filter(TS >= times[i_time], TS < times[i_time] + days(7))
 
 # to center align plots in facet_wrap: make plot for each row and combine them with grid.arrange
-cb_limits <- c(10^-8, vals[length(vals)] )  # colorbar limits
+cb_limits <- vals[c(1, length(vals))]  # colorbar limits
 
 create_row <- function(row, only_legend = F, top = F) {
   pred_dt <- filter(pred_by_cell_long, Model %in% row)
@@ -206,7 +207,7 @@ create_row <- function(row, only_legend = F, top = F) {
                          colors = magma_colors, values = rescale(vals), limits = cb_limits,
                          breaks = c(-11, -9, -7, -5, -3),
                          labels = expression(10^-11, 10^-9, 10^-7, 10^-5, 10^-3),
-                         guide = guide_colorbar(frame.colour = "black", barheight = unit(40, "mm"))) +
+                         guide = guide_colorbar(frame.colour = "black", barheight = unit(30, "mm"))) +
     scale_color_manual(name = "Observed\nearth-\nquakes", values = c("Obs. earthquakes" = "black"),
                        labels = "", guide = guide_legend(order = 2, override.aes = list(size = 4))) +
     add_eqs +
@@ -532,7 +533,7 @@ score_diff_plot <- ggplot() +
   geom_point(data = filter(diff_scores, earthquake),
              aes(x = X, y = value, color = Model, shape = earthquake),
              size = point_size, alpha = point_alpha) +
-  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3, linetype = "dashed") +
+  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3) +
   scale_x_continuous(breaks = scores$X[new_year], labels = NULL, limits = c(0, nrow(scores))) +
   scale_y_continuous(trans = my_trans, breaks = my_breaks, labels = my_labels,
                      minor_breaks = minor_breaks, limits = my_limits) +
@@ -558,7 +559,7 @@ colnames(df_cum) <- c(ana_models, "X", "earthquake")
 cum_inf_plot <- df_cum %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model") %>%
   ggplot() +
-  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3, linetype = "dashed") +
+  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3) +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = (1:n_days)[new_year], labels = NULL, limits = c(1, n_days)) +
   scale_color_manual(name = NULL, values = model_colors[model_names[model_order]],
@@ -582,7 +583,7 @@ colnames(df_cum_pe) <- c(ana_models, "X", "earthquake")
 cum_inf_pe_plot <- df_cum_pe %>%
   pivot_longer(cols = all_of(ana_models), names_to = "Model") %>%
   ggplot() +
-  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3, linetype = "dashed") +
+  geom_hline(yintercept = 0, color = model_colors[cmp_model], size = 0.3) +
   geom_line(aes(x = X, y = value, color = Model), size = 0.3) +
   scale_x_continuous(breaks = (1:n_days)[new_year], labels = year(times[new_year]),
                      limits = c(1, n_days)) +
@@ -674,7 +675,7 @@ spat_plot <- ggplot() +
             fill = NA) +
   geom_sf(data = filter(europe, name == "Italy"), color = "black", fill = NA,
           size = 0.2) +
-  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = TRUE) +
+  coord_sf(xlim = lon_lim, ylim = lat_lim, expand = FALSE) +
   scale_x_continuous(name = NULL, breaks = c(6, 10, 14, 18)) +
   scale_y_continuous(name = NULL, breaks = c(36, 40, 44, 48)) +
   scale_fill_gradientn(name = "Score\ndifference",
@@ -690,7 +691,7 @@ spat_plot <- ggplot() +
   theme(legend.position = "bottom")
 
 file_path <- file.path(fpath, paste0("Fig10_ScoreDiffSpat", add_name, ".pdf"))
-ggsave(file_path, width = 145, height = 160, unit = "mm", plot = spat_plot)
+ggsave(file_path, width = 145, height = 180, unit = "mm", plot = spat_plot)
 
 rm(scores, diff_scores, spat_plot, eq_loc, europe)
 
@@ -933,7 +934,7 @@ my_labeller <- function(l) {
   return(labels)
 }
 
-# 1 - use averaed empirical CDF transform --------------------------------------
+# 1 - use averaged empirical CDF transform --------------------------------------
 col_ecdfs <- list()
 for (i in 1:length(models)) {
   col_ecdfs[[i]] <- read.csv(file.path(tpath, paste0("ecdf_", model_names[i], ".csv")), row.names = 1)
@@ -1071,7 +1072,7 @@ create_row <- function(row, top = TRUE) {
   top_margin <- ifelse(top, 5.5, 0.0)
   bot_margin <- ifelse(top, 0.0, 5.5)
 
-  df_segments <-  dt_recal %>%
+  df_segments <- dt_recal %>%
     group_by(Model) %>%
     group_modify(function(df, key) {
       jumps <- (df$x_rc[-1] - df$x_rc[-nrow(df)] > 0)

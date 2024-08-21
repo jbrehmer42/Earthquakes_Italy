@@ -305,7 +305,7 @@ get_ecdf_trans <- function(daily = FALSE) {
 plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
   pick_panels <- c("A", "B", "D")
   n_rows <- 1
-  plot_colors <- scales::hue_pal()(8)[c(2, 1, 4, 3, 6, 5)]
+  plot_colors <- scales::hue_pal()(8)[c(1, 2, 4, 3, 6, 5)]
   plot_data <- make_groups(reliability) %>%
     filter(I %in% pick_panels)
 
@@ -376,7 +376,7 @@ daily <- FALSE
 l_results <- cmp_run_sim(daily = daily)
 
 my_plot <- plot_rel(l_results$reliability, l_results$scores, daily = daily, use_ecdf = T)
-file_path <- file.path(fpath, "Fig6_RelDiag-manipulated.pdf")
+file_path <- file.path(fpath, "Fig6_RelDiag-manipulated-LMCol.pdf")
 ggsave(file_path, width = 140, height = 68, unit = "mm", plot = my_plot)
 
 non_sig_seg <- get_non_sig_connections(filter(l_results$scores, Scoring == "pois"))
