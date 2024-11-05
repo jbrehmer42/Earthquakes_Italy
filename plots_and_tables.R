@@ -1117,9 +1117,9 @@ combine <- grid.arrange(create_row(rows[[1]], top = T) +
                         create_row(rows[[2]], top = F) +
                           inset_histograms[which(model_names %in% rows[[2]])],
                         heights = c(1, 1),
-                        bottom = textGrob("Forecast value",
+                        bottom = textGrob(expression(paste("Forecast value ", x)),
                                        gp = gpar(fontsize = 11)),
-                        left = textGrob("Conditional mean", rot = 90,
+                        left = textGrob(expression(paste("Mean\u00adcalibrated forecast value ", hat(x))), rot = 90,
                                        gp = gpar(fontsize = 11)))
 
 # create small hist to describe functionality of inset histogram pictogram like
