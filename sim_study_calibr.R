@@ -305,7 +305,7 @@ get_ecdf_trans <- function(daily = FALSE) {
 plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
   pick_panels <- c("A", "B", "D")
   n_rows <- 1
-  plot_colors <- scales::hue_pal()(8)[c(2, 1, 4, 3, 6, 5)]
+  plot_colors <- scales::hue_pal()(8)[c(1, 2, 4, 3, 6, 5)]
   plot_data <- make_groups(reliability) %>%
     filter(I %in% pick_panels)
 
@@ -353,16 +353,17 @@ plot_rel <- function(reliability, score_cmps, use_ecdf = T, daily = F) {
                      yend = my_trans(x_rc), color = fcst), size = 0.7) +
     geom_text(data = df_scores, mapping = aes(x = x, y = y, label = label, color = fcst),
               size = 6 * 0.36, hjust = 0, vjust = 0, show.legend = F) +
-    xlab("Forecast value") +
+    xlab(expression(paste("Forecast value ", x))) +
     scale_x_continuous(breaks = my_breaks, labels = my_labels) +
     scale_y_continuous(breaks = my_breaks, labels = my_labels) +
-    ylab("Conditional mean") +
+    ylab(expression(paste("Mean\u00adcalibrated forecast value ", hat(x)))) +
     scale_color_manual(name = NULL, labels = change_names(), values = plot_colors,
                        guide = guide_legend(nrow = 1)) +
     my_theme +
     theme(strip.text = element_blank(), legend.position = "bottom",
           aspect.ratio = 1, panel.grid.major = element_blank(),
-          panel.grid.minor = element_blank())
+          panel.grid.minor = element_blank(), axis.title.y = element_text(hjust = 0.6),
+          plot.margin = margin(22, 5.5, 5.5, 5.5))
 
   return(my_plot)
 }
@@ -377,7 +378,7 @@ l_results <- cmp_run_sim(daily = daily)
 
 my_plot <- plot_rel(l_results$reliability, l_results$scores, daily = daily, use_ecdf = T)
 file_path <- file.path(fpath, "Fig6_RelDiag-manipulated.pdf")
-ggsave(file_path, width = 140, height = 68, unit = "mm", plot = my_plot)
+ggsave(file_path, width = 140, height = 73, unit = "mm", plot = my_plot)
 
 non_sig_seg <- get_non_sig_connections(filter(l_results$scores, Scoring == "pois"))
 my_plot <- plot_score_components(l_results$scores, non_sig_seg, daily = daily)

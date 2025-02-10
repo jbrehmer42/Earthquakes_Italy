@@ -8,12 +8,13 @@ library(lubridate)
 fpath <- "./figures"
 tpath <- "./save_results"
 
-source("data_prep.R")   # make sure to load data of LM, LG and FMC model
+source("data_prep.R")   # make sure to load data of LM, LG and FCM model
 source("utils.R")
 
 ################################################################################
 
-get_mix_forecasts <- function(fcst1, fcst2) {
+get_mix_forecasts <- function(fcst1, fcst2, fcst3) {
+  # create mixture models : pick for each day with probability 0.5 either fcst1 or fcst2
   pick <- rbinom(n_days, 1, 0.5)
   a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
   a[pick == 1, ] <- fcst1[pick == 1, ]
@@ -24,10 +25,61 @@ get_mix_forecasts <- function(fcst1, fcst2) {
   return(list(a = a, b = b))
 }
 
-sim_tests <- function(B = 400, weekday = "Mo") {
+get_mix_forecasts_spatial <- function(fcst1, fcst2, fcst3) {
+  # create mixture models : pick for each cell with probability 0.5 either fcst1 or fcst2
+  pick <- rbinom(n_cells, 1, 0.5)
+  a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  a[, pick == 1] <- fcst1[, pick == 1]
+  a[, pick == 0] <- fcst2[, pick == 0]
+  b <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  b[, pick == 1] <- fcst2[, pick == 1]
+  b[, pick == 0] <- fcst1[, pick == 0]
+  return(list(a = a, b = b))
+}
+
+get_mix_forecasts_all_three <- function(fcst1, fcst2, fcst3) {
+  # create mixture models : pick for each day with probability 0.5 either fcst1 or fcst2
+  pick <- sample(1:3, n_days, T)
+  a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  a[pick == 1, ] <- fcst1[pick == 1, ]
+  a[pick == 2, ] <- fcst2[pick == 2, ]
+  a[pick == 3, ] <- fcst3[pick == 3, ]
+  pick2 <- sample(1:2, n_days, T)
+  b <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  b[pick == 1 & pick2 == 1, ] <- fcst2[pick == 1 & pick2 == 1, ]
+  b[pick == 1 & pick2 == 2, ] <- fcst3[pick == 1 & pick2 == 2, ]
+  b[pick == 2 & pick2 == 1, ] <- fcst1[pick == 2 & pick2 == 1, ]
+  b[pick == 2 & pick2 == 2, ] <- fcst3[pick == 2 & pick2 == 2, ]
+  b[pick == 3 & pick2 == 1, ] <- fcst1[pick == 3 & pick2 == 1, ]
+  b[pick == 3 & pick2 == 2, ] <- fcst2[pick == 3 & pick2 == 2, ]
+  return(list(a = a, b = b))
+}
+
+get_mix_forecasts_spat_all_three <- function(fcst1, fcst2, fcst3) {
+  # create mixture models : pick for each day with probability 0.5 either fcst1 or fcst2
+  pick <- sample(1:3, n_cells, T)
+  a <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  a[, pick == 1] <- fcst1[, pick == 1]
+  a[, pick == 2] <- fcst2[, pick == 2]
+  a[, pick == 3] <- fcst3[, pick == 3]
+  pick2 <- sample(1:2, n_cells, T)
+  b <- matrix(NA, nrow = nrow(fcst1), ncol = ncol(fcst1))
+  b[, pick == 1 & pick2 == 1] <- fcst2[, pick == 1 & pick2 == 1]
+  b[, pick == 1 & pick2 == 2] <- fcst3[, pick == 1 & pick2 == 2]
+  b[, pick == 2 & pick2 == 1] <- fcst1[, pick == 2 & pick2 == 1]
+  b[, pick == 2 & pick2 == 2] <- fcst3[, pick == 2 & pick2 == 2]
+  b[, pick == 3 & pick2 == 1] <- fcst1[, pick == 3 & pick2 == 1]
+  b[, pick == 3 & pick2 == 2] <- fcst2[, pick == 3 & pick2 == 2]
+  return(list(a = a, b = b))
+}
+
+sim_tests <- function(B = 400, weekdays = c("Mo"), mix_fcsts = get_mix_forecasts) {
   collect_results <- data.frame()
 
-  filter_days <- (lubridate::wday(times, label = T) == weekday)
+  filter_days <- c(lapply(weekdays, function(w) lubridate::wday(times, label = T) == w),
+                   rep(T, n_days))
+  weekdays <- c(weekdays, "All")
+  max_lags <- setNames(c(rep(0, 7), 6), weekdays)
 
   y <- obs
   lm <- models[[which(model_names == "LM")]]
@@ -37,23 +89,26 @@ sim_tests <- function(B = 400, weekday = "Mo") {
 
   for (i in 1:B) {
     cat("*")
-    mixed_fcsts <- get_mix_forecasts(mix1, mix2)
+    mixed_fcsts <- mix_fcsts(mix1, mix2, lm)
 
     fcst_data <- setNames(list(lm, mixed_fcsts[[1]], mixed_fcsts[[2]]), fcst_names)
 
     for (fcst1 in 1:(length(fcst_names) - 1)) {
       for (fcst2 in (fcst1 + 1):length(fcst_names)) {
         cmp_name <- paste(fcst_names[fcst1], "vs.", fcst_names[fcst2])
-        test_vals1 <- csep_test(fcst_data[[fcst_names[fcst1]]], fcst_data[[fcst_names[fcst2]]], y)
-        test_vals2 <- dm_test(fcst_data[[fcst_names[fcst1]]], fcst_data[[fcst_names[fcst2]]], y, s_pois)
-        test_vals3 <- csep_test(fcst_data[[fcst_names[fcst1]]][filter_days,],
-                                fcst_data[[fcst_names[fcst2]]][filter_days,], y[filter_days,])
-        collect_results <- rbind(
-          collect_results,
-          cbind(test_vals1, I = i, cmp = cmp_name, t = "CSEP", m = "all"),
-          cbind(test_vals2, I = i, cmp = cmp_name, t = "DM", m = "all"),
-          cbind(test_vals3, I = i, cmp = cmp_name, t = "CSEP", m = "Mo")
-        )
+        dfs_dm <- lapply(1:length(weekdays), function(c) {
+          test_vals <- dm_test(fcst_data[[fcst_names[fcst1]]][filter_days[[c]], ],
+                               fcst_data[[fcst_names[fcst2]]][filter_days[[c]], ], y[filter_days[[c]], ], s_pois,
+                               max_lag = max_lags[c])
+          return(data.frame(test_vals, I = i, cmp = cmp_name, t = "DM", m = weekdays[c]))
+        })
+
+        dfs_csep <- lapply(1:length(weekdays), function(c) {
+          test_vals <- csep_test(fcst_data[[fcst_names[fcst1]]][filter_days[[c]], ],
+                                 fcst_data[[fcst_names[fcst2]]][filter_days[[c]], ], y[filter_days[[c]], ])
+          return(data.frame(test_vals, I = i, cmp = cmp_name, t = "CSEP", m = weekdays[c]))
+        })
+        collect_results <- rbind(collect_results, do.call(rbind, dfs_csep), do.call(rbind, dfs_dm))
       }
     }
   }
@@ -67,12 +122,13 @@ plot_results <- function(df) {
 
   new_cmp <- c("MixA vs. MixB" = "MixA vs. MixB", "LM vs. MixA" = "MixA vs. LM",
                "LM vs. MixB" = "MixB vs. LM")
-  ord <- c("MixA vs. MixB", "MixA vs. LM", "MixB vs. LM")
+  lab_cmp <- c(expression(paste(Mix[A], " vs. ", Mix[B])), expression(paste(Mix[A], " vs. LM")),
+              expression(paste(Mix[B], " vs. LM")))
 
   df %>%
-    mutate(cmp = factor(new_cmp[cmp], ordered = T, levels = ord)) %>%
+    mutate(cmp = factor(new_cmp[cmp], ordered = T, levels = unname(new_cmp), labels = lab_cmp)) %>%
     ggplot() +
-    facet_wrap(~cmp) +
+    facet_wrap(~cmp, labeller = label_parsed) +
     geom_histogram(aes(x = pval, y = ..density..), breaks = bins) +
     geom_vline(xintercept = c(0.05, 0.95), color = "#f8766d", linetype = "dashed",
                size = 0.3) +
@@ -88,14 +144,15 @@ plot_results <- function(df) {
 cmp_run_sim <- compiler::cmpfun(sim_tests)
 
 set.seed(111)
-results <- cmp_run_sim(B = 400)
-write.csv(results, file.path(tpath, "simstudy-tests_400.csv"))
+results <- cmp_run_sim(B = 400, weekdays = c("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"),
+                       mix_fcsts = get_mix_forecasts)
+write.csv(results, file.path(tpath, "simstudy-tests_400_temporal.csv"))
 
-my_plot <- plot_results(filter(results, t == "DM", m == "all"))
+my_plot <- plot_results(filter(results, t == "DM", m == "All"))
 file_path <- file.path(fpath, "Fig5_sim-DieboldMariano.pdf")
 ggsave(file_path, width = 140, height = 50, unit = "mm")
 
-my_plot <- plot_results(filter(results, t == "CSEP", m == "all"))
+my_plot <- plot_results(filter(results, t == "CSEP", m == "All"))
 file_path <- file.path(fpath, "Fig_CSEP-t-Test.pdf")
 ggsave(file_path, width = 140, height = 50, unit = "mm")
 
@@ -107,6 +164,41 @@ results %>%
   filter(cmp == "MixA vs. MixB") %>%
   group_by(t, m) %>%
   summarise(A = sum(pval < 0.05, na.rm = T), B = sum(pval > 0.95, na.rm = T))
+
+# compare for temporal mixing and spatial mixing DM Test and CSEP T-test just for MixA vs. MixB ------------------------
+
+# need to have run simulation study for temporal and spatial mixing to be able to load results
+
+df <- rbind(
+  read.csv(file.path(tpath, "simstudy-tests_400_temporal.csv"), row.names = 1) %>% filter(cmp == "MixA vs. MixB"),
+  read.csv(file.path(tpath, "simstudy-tests_400_spatial.csv"), row.names = 1) %>% filter(cmp == "MixA vs. MixB") %>%
+    mutate(cmp = "MixA^S vs. MixB^S")
+)
+
+bins <- seq(0, 1, length.out = 20 + 1)
+new_cmp <- c("MixA vs. MixB" = expression(paste(Mix[A], " vs. ", Mix[B])),
+             "MixA^S vs. MixB^S" = expression(paste(Mix[A]^S, " vs. ", Mix[B]^S)))
+translate <- c("Mo" = "Mon", "Di" = "Tue", "Mi" = "Wed", "Do" = "Thu", "Fr" = "Fri", "Sa" = "Sat", "So" = "Sun")
+new_t <- c("CSEP" = "CSEP T\u00adtest", "DM" = "DM Test")
+
+filter(df, m != "All") %>%
+  mutate(cmp = factor(cmp, ordered = T, levels = names(new_cmp), labels = unname(new_cmp)),
+         m = factor(translate[m], ordered = T, levels = unname(translate)),
+         t = factor(t, ordered = T, levels = names(new_t), labels = unname(new_t))) %>%
+    ggplot() +
+    facet_grid(rows = vars(m), cols = vars(t, cmp), labeller = labeller(cmp = label_parsed)) +
+    geom_histogram(aes(x = pval, y = ..density..), breaks = bins) +
+    geom_vline(xintercept = c(0.05, 0.95), color = "#f8766d", linetype = "dashed",
+               size = 0.3) +
+    scale_x_continuous(breaks = 0:4 / 4, labels = c("0", "0.25", "0.5", "0.75", "1")) +
+    scale_y_continuous(breaks = NULL, labels = NULL, minor_breaks = (0:8) * 2.5) +
+    xlab(NULL) +
+    ylab(NULL) +
+    ggtitle(NULL) +
+    my_theme +
+    theme(strip.background = element_blank())
+file_path <- file.path(fpath, "FigR_MixA-vs-MixB.pdf")
+ggsave(file_path, width = 140, height = 190, unit = "mm")
 
 
 # investigate CSEP : all vs. Mondays -----------------------------------------------------------------------------------

@@ -120,7 +120,7 @@ csep_test <- function(fcst1, fcst2, y, scf = NULL) {
   return(data.frame(zval = test_stat, pval = pval, sd = sqrt(test_var), mean_diff = I_N_ij))
 }
 
-dm_test <- function(fcst1, fcst2, y, scf) {
+dm_test <- function(fcst1, fcst2, y, scf, max_lag = 6) {
   if (!is.null(dim(fcst1)) && dim(fcst1) == 2) {     # forecasts are already aggregated on daily basis
     diff_scores <- scf(fcst2, y) - scf(fcst1, y)
   } else {
@@ -128,12 +128,11 @@ dm_test <- function(fcst1, fcst2, y, scf) {
   }
   mean_diff_score <- mean(diff_scores)
 
-  auto_covs <- acf(diff_scores, lag.max = 6, type = "covariance", plot = F)$acf
-  dm_var <- auto_covs[1] + 2 * sum(auto_covs[-1])
+  auto_covs <- acf(diff_scores, lag.max = max_lag, type = "covariance", plot = F)$acf
+  dm_var <- sum(c(auto_covs[1], 2 * auto_covs[-1]))
 
-  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(n_days)
+  test_stat <- mean_diff_score / sqrt(dm_var) * sqrt(nrow(fcst1))
   pval <- 1 - pnorm(test_stat)
 
-  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var),
-                    mean_diff = mean_diff_score))
+  return(data.frame(zval = test_stat, pval = pval, sd = sqrt(dm_var), mean_diff = mean_diff_score))
 }
