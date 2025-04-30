@@ -5,7 +5,7 @@ Italy:
 
 > Brehmer, J. R., Kraus, K., Gneiting, T., Herrmann, M., and Marzocchi, W. (2025).
 > Enhancing the Statistical Evaluation of Earthquake Forecasts—An Application to Italy.
-> _Seismological Research Letters_.
+> _Seismological Research Letters, 96_(3).
 > doi: [10.1785/0220240209](https://doi.org/10.1785/0220240209).
 > arXiv: [2405.10712](https://arxiv.org/abs/2405.10712)
 
